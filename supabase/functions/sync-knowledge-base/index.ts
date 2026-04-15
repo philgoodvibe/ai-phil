@@ -204,6 +204,12 @@ Deno.serve(async (req) => {
     stats.filesSeen = files.length;
 
     if (files.length === 0) {
+      // Advance timestamp to now so the next run doesn't re-scan from the old sentinel date
+      await supabase.from("sync_state").upsert({
+        key: "ai_phil_docs_last_synced",
+        value: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
       await closeRun(supabase, runId, stats);
       return Response.json({ synced: 0, skipped: 0, errors: 0, files: [] });
     }
