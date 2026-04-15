@@ -50,8 +50,8 @@ The vault is at:
 
 - **Supabase project `ylppltmwueasbdexepip`** — tables `kb_documents`, `ai_phil_prospects` and edge functions `search-knowledge-base`, `ingest-document`, `hume-admin`
 - **Hume EVI** — 3 configs (New Member / Implementation Coach / Discovery), 2 tools, 1 custom voice ("Philip Voice"). Manage via `https://app.hume.ai` or the `hume-admin` Supabase edge function.
-- **Knowledge source** — Google Docs folder `60-content/Ai Phil Google Docs/` in the vault. Edit there, n8n syncs to Supabase (once the watcher bug is fixed).
-- **n8n** — Hostinger VPS at `https://n8n.srv1588772.hstgr.cloud` runs content sync
+- **Knowledge source** — Google Docs folder `60-content/Ai Phil Google Docs/` in the vault (Drive folder ID: `1WvYoladPakRleEscONNFXVgHv3-hjbEE`). Edit there, the `sync-knowledge-base` Supabase edge function syncs to `kb_documents` every 30 minutes automatically.
+  - ⚠️ **LIVE SYNC — WRITES GO DIRECTLY INTO PHIL'S BRAIN.** Any Google Doc placed in this folder is automatically embedded into Phil's knowledge base within 30 minutes. Do NOT put docs for other projects (Lea, GHL bots, etc.) in this folder. Wrong docs = Phil gives wrong answers to real users.
 
 ---
 
