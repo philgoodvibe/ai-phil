@@ -1,0 +1,14 @@
+[api]
+enabled = true
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+
+[auth]
+enabled = true
+
+# Links this local directory to the remote project
+project_id = "ylppltmwueasbdexepip"
