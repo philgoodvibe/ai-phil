@@ -6,7 +6,16 @@ const FOLDER_ID = "1WvYoladPakRleEscONNFXVgHv3-hjbEE";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HUME_TOOL_SECRET = Deno.env.get("HUME_TOOL_SECRET")!;
-const GOOGLE_SA_KEY = JSON.parse(Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY")!);
+
+function getGoogleServiceAccountKey(): Record<string, string> {
+  const raw = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY");
+  if (!raw) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY secret is not set");
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON");
+  }
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -43,6 +52,7 @@ async function withRetry<T>(
 // ─── Google Auth ─────────────────────────────────────────────────────────────
 
 async function getGoogleAccessToken(): Promise<string> {
+  const GOOGLE_SA_KEY = getGoogleServiceAccountKey();
   const now = Math.floor(Date.now() / 1000);
 
   const header = { alg: "RS256", typ: "JWT" };
@@ -115,6 +125,7 @@ async function listModifiedFiles(
     q: `'${FOLDER_ID}' in parents and modifiedTime > '${since}' and trashed = false and mimeType = 'application/vnd.google-apps.document'`,
     fields: "files(id,name,modifiedTime,mimeType)",
     orderBy: "modifiedTime asc",
+    // TODO: handle nextPageToken for folders with >100 docs (not needed at current scale of ~50 max)
     pageSize: "100",
   });
 
@@ -166,11 +177,12 @@ async function openRun(
   supabase: SupabaseClient,
   trigger: string,
 ): Promise<string | undefined> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("sync_runs")
     .insert({ trigger, started_at: new Date().toISOString() })
     .select("id")
     .single();
+  if (error) console.warn("[sync-kb] Failed to open sync_runs row:", error.message);
   return data?.id;
 }
 
@@ -244,7 +256,6 @@ Deno.serve(async (req) => {
     for (const file of files) {
       // Abort if approaching Supabase's 150s wall-clock limit
       if (Date.now() - startedAt > 120_000) {
-        console.warn("[sync-kb] Approaching wall-clock limit — aborting remaining files");
         stats.filesErrored++;
         stats.errorDetails.push({
           file_id: file.id,
@@ -252,6 +263,7 @@ Deno.serve(async (req) => {
           error: "Aborted: wall-clock limit reached",
         });
         fileResults.push({ id: file.id, title: file.name, status: "error" });
+        if (file.modifiedTime > latestModifiedTime) latestModifiedTime = file.modifiedTime;
         continue;
       }
 
@@ -324,13 +336,17 @@ Deno.serve(async (req) => {
         fileResults.push({ id: file.id, title: file.name, status: "error" });
       }
 
-      // Advance timestamp regardless of outcome (prevent retry storm on bad files)
+      // Advance timestamp regardless of outcome.
+      // NOTE: This means files that error will NOT be retried on the next cron run —
+      // their modifiedTime has been consumed by the pivot. This is intentional to
+      // prevent retry storms on permanently-broken files. If a file needs re-ingestion,
+      // use the manual trigger after fixing the underlying issue.
       if (file.modifiedTime > latestModifiedTime) {
         latestModifiedTime = file.modifiedTime;
       }
     }
 
-    // 5. Advance timestamp pivot to max(modifiedTime) from this batch
+    // 4. Advance timestamp pivot to max(modifiedTime) from this batch
     await supabase.from("sync_state").upsert({
       key: "ai_phil_docs_last_synced",
       value: latestModifiedTime,
