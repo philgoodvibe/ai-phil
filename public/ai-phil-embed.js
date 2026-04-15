@@ -55,12 +55,12 @@
   launcher.innerHTML =
     '<img src="' + avatarSrc + '" alt="AI Phil" ' +
     'style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;' +
-    'box-shadow:0 0 0 2px rgba(253,208,67,0.6);" />' +
+    'box-shadow:0 0 0 2px rgba(231,76,60,0.55);" />' +
     '<span style="letter-spacing:-0.005em;">' + escapeHtml(ctaLabel) + "</span>";
   launcher.style.cssText =
     "position: fixed; " + FLOAT_STYLES[position] + " z-index: 2147483646; " +
     "display: inline-flex; align-items: center; gap: 10px; padding: 10px 18px 10px 8px; " +
-    "background: #0a1928; color: #f5f0e6; " +
+    "background: #1d3855; color: #f5f0e6; " +
     "border: 1px solid rgba(245,240,230,0.08); border-radius: 999px; " +
     "box-shadow: 0 16px 40px -8px rgba(0,0,0,0.45), 0 6px 20px -6px rgba(0,0,0,0.3); " +
     "cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; " +
@@ -81,7 +81,7 @@
     "position: fixed; " + FLOAT_STYLES[position] + " z-index: 2147483647; " +
     "width: 380px; height: 600px; border: 0; border-radius: 20px; " +
     "box-shadow: 0 24px 60px -12px rgba(0,0,0,0.45), 0 8px 24px -8px rgba(0,0,0,0.3); " +
-    "background: #0a1928; " +
+    "background: #1d3855; " +
     "display: none; " +
     "transform-origin: " + (position === "bottom-left" ? "bottom left" : "bottom right") + ";";
 

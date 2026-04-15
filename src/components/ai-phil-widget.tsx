@@ -7,8 +7,8 @@
  * dropped into any site via /public/ai-phil-embed.js). Also usable
  * directly inside SAGE.
  *
- * Aesthetic: late-night coaching studio.
- *   Deep navy backdrop · warm gold accent · coral when AI Phil speaks
+ * Aesthetic: AiAi Mastermind coaching studio.
+ *   Deep navy backdrop · coral accent · gold "Phil" signature
  *   Big central mic · pulse rings · real-time waveform bars (Hume FFT)
  */
 
@@ -295,7 +295,7 @@ function Stage({ auth, apiBase, floating, startMode }: { auth: AccessTokenPayloa
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Frame — dark studio backdrop
+// Frame — AiAi navy backdrop
 // ────────────────────────────────────────────────────────────────────────────
 
 function StageFrame({ children, floating }: { children: React.ReactNode; floating?: boolean }) {
@@ -304,11 +304,11 @@ function StageFrame({ children, floating }: { children: React.ReactNode; floatin
       className={cn(
         "relative flex flex-col overflow-hidden text-[#f5f0e6] font-sans",
         floating ? "w-[380px] h-[600px] rounded-2xl shadow-2xl" : "w-full h-screen",
-        "bg-[#0a1928]"
+        "bg-[#1d3855]"
       )}
       style={{
         backgroundImage:
-          "radial-gradient(ellipse 80% 60% at 50% 22%, rgba(253,208,67,0.10), transparent 60%), radial-gradient(ellipse 70% 50% at 50% 90%, rgba(255,107,91,0.06), transparent 60%)",
+          "radial-gradient(ellipse 80% 60% at 50% 22%, rgba(255,255,255,0.04), transparent 60%), radial-gradient(ellipse 70% 50% at 50% 90%, rgba(231,76,60,0.08), transparent 60%)",
       }}
     >
       <AmbientParticles />
@@ -347,9 +347,9 @@ function Header({
             className="w-10 h-10 rounded-full object-cover ring-2 ring-white/10"
           />
           <span className={cn(
-            "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#0a1928]",
+            "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#1d3855]",
             state === "listening" && "bg-emerald-400",
-            state === "speaking" && "bg-[#ff6b5b]",
+            state === "speaking" && "bg-[#e74c3c]",
             state === "thinking" && "bg-violet-400",
             state === "connecting" && "bg-amber-400",
             state === "muted" && "bg-gray-500",
@@ -397,7 +397,7 @@ function ModeTab({ active, onClick, children }: { active: boolean; onClick: () =
       className={cn(
         "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition",
         active
-          ? "bg-[#fdd043] text-[#0a1928] shadow"
+          ? "bg-[#e74c3c] text-white shadow"
           : "text-white/60 hover:text-white"
       )}
     >
@@ -435,12 +435,12 @@ function VoiceStage({
         animate={{
           background:
             state === "speaking"
-              ? "radial-gradient(circle, rgba(255,107,91,0.22), rgba(255,107,91,0) 70%)"
+              ? "radial-gradient(circle, rgba(231,76,60,0.22), rgba(231,76,60,0) 70%)"
               : state === "thinking"
                 ? "radial-gradient(circle, rgba(167,139,250,0.20), rgba(167,139,250,0) 70%)"
                 : state === "listening"
-                  ? "radial-gradient(circle, rgba(253,208,67,0.22), rgba(253,208,67,0) 70%)"
-                  : "radial-gradient(circle, rgba(253,208,67,0.08), rgba(253,208,67,0) 70%)",
+                  ? "radial-gradient(circle, rgba(231,76,60,0.22), rgba(231,76,60,0) 70%)"
+                  : "radial-gradient(circle, rgba(231,76,60,0.06), rgba(231,76,60,0) 70%)",
           scale: state === "listening" || state === "speaking" || state === "thinking" ? [1, 1.08, 1] : 1,
         }}
         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
@@ -458,11 +458,11 @@ function VoiceStage({
             className={cn(
               "w-[3px] rounded-full",
               state === "speaking"
-                ? "bg-[#ff6b5b]"
+                ? "bg-[#e74c3c]"
                 : state === "thinking"
                   ? "bg-violet-400"
                   : state === "listening"
-                    ? "bg-[#fdd043]"
+                    ? "bg-[#e74c3c]"
                     : "bg-white/20"
             )}
             animate={{
@@ -491,9 +491,9 @@ function MicOrb({ state }: { state: VoiceState }) {
               key="ring1"
               className={cn(
                 "absolute inset-0 rounded-full border-2",
-                state === "speaking" && "border-[#ff6b5b]/30",
+                state === "speaking" && "border-[#e74c3c]/30",
                 state === "thinking" && "border-violet-400/30",
-                state === "listening" && "border-[#fdd043]/30"
+                state === "listening" && "border-[#e74c3c]/30"
               )}
               initial={{ scale: 1, opacity: 0.7 }}
               animate={{ scale: 1.6, opacity: 0 }}
@@ -503,9 +503,9 @@ function MicOrb({ state }: { state: VoiceState }) {
               key="ring2"
               className={cn(
                 "absolute inset-0 rounded-full border-2",
-                state === "speaking" && "border-[#ff6b5b]/20",
+                state === "speaking" && "border-[#e74c3c]/20",
                 state === "thinking" && "border-violet-400/20",
-                state === "listening" && "border-[#fdd043]/20"
+                state === "listening" && "border-[#e74c3c]/20"
               )}
               initial={{ scale: 1, opacity: 0.5 }}
               animate={{ scale: 2.1, opacity: 0 }}
@@ -520,9 +520,9 @@ function MicOrb({ state }: { state: VoiceState }) {
         className={cn(
           "relative w-32 h-32 rounded-full flex items-center justify-center",
           "border-2",
-          state === "speaking" && "border-[#ff6b5b] shadow-[0_0_40px_rgba(255,107,91,0.35)]",
+          state === "speaking" && "border-[#e74c3c] shadow-[0_0_40px_rgba(231,76,60,0.35)]",
           state === "thinking" && "border-violet-400 shadow-[0_0_40px_rgba(167,139,250,0.30)]",
-          state === "listening" && "border-[#fdd043] shadow-[0_0_40px_rgba(253,208,67,0.35)]",
+          state === "listening" && "border-[#e74c3c] shadow-[0_0_40px_rgba(231,76,60,0.35)]",
           state === "connecting" && "border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.25)]",
           state === "muted" && "border-white/20",
           state === "idle" && "border-white/15",
@@ -531,18 +531,18 @@ function MicOrb({ state }: { state: VoiceState }) {
         style={{
           background:
             state === "speaking"
-              ? "radial-gradient(circle at 35% 32%, rgba(255,180,150,0.3), rgba(255,107,91,0.18) 55%, rgba(214,90,58,0.08) 100%)"
+              ? "radial-gradient(circle at 35% 32%, rgba(255,180,150,0.30), rgba(231,76,60,0.18) 55%, rgba(180,40,30,0.08) 100%)"
               : state === "thinking"
                 ? "radial-gradient(circle at 35% 32%, rgba(224,215,255,0.32), rgba(167,139,250,0.18) 55%, rgba(109,85,201,0.08) 100%)"
                 : state === "listening"
-                  ? "radial-gradient(circle at 35% 32%, rgba(255,243,196,0.35), rgba(253,208,67,0.18) 55%, rgba(201,160,32,0.08) 100%)"
+                  ? "radial-gradient(circle at 35% 32%, rgba(255,180,150,0.30), rgba(231,76,60,0.18) 55%, rgba(180,40,30,0.08) 100%)"
                   : "radial-gradient(circle at 35% 32%, rgba(245,240,230,0.12), rgba(245,240,230,0.05) 55%, rgba(0,0,0,0) 100%)",
         }}
         animate={
           state === "listening"
-            ? { boxShadow: ["0 0 0 0 rgba(253,208,67,0.4)", "0 0 0 24px rgba(253,208,67,0)"] }
+            ? { boxShadow: ["0 0 0 0 rgba(231,76,60,0.40)", "0 0 0 24px rgba(231,76,60,0)"] }
             : state === "speaking"
-              ? { boxShadow: ["0 0 0 0 rgba(255,107,91,0.4)", "0 0 0 24px rgba(255,107,91,0)"] }
+              ? { boxShadow: ["0 0 0 0 rgba(231,76,60,0.40)", "0 0 0 24px rgba(231,76,60,0)"] }
               : state === "thinking"
                 ? { boxShadow: ["0 0 0 0 rgba(167,139,250,0.35)", "0 0 0 20px rgba(167,139,250,0)"] }
                 : undefined
@@ -567,12 +567,12 @@ function MicOrb({ state }: { state: VoiceState }) {
           )}
           {(state === "listening" || state === "idle") && (
             <motion.div key="l" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
-              <Mic className={cn("w-11 h-11", state === "listening" ? "text-[#fdd043]" : "text-white/30")} />
+              <Mic className={cn("w-11 h-11", state === "listening" ? "text-[#e74c3c]" : "text-white/30")} />
             </motion.div>
           )}
           {state === "speaking" && (
             <motion.div key="s" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
-              <Waves className="w-11 h-11 text-[#ff6b5b]" />
+              <Waves className="w-11 h-11 text-[#e74c3c]" />
             </motion.div>
           )}
           {state === "error" && (
@@ -598,7 +598,7 @@ function StatusLine({ state, duration }: { state: VoiceState; duration: number }
   })();
   const color =
     state === "listening" ? "text-emerald-400" :
-    state === "speaking" ? "text-[#ff6b5b]" :
+    state === "speaking" ? "text-[#e74c3c]" :
     state === "thinking" ? "text-violet-300" :
     state === "connecting" ? "text-amber-400" :
     state === "error" ? "text-red-400" :
@@ -652,7 +652,7 @@ const ChatStage = forwardRef<HTMLDivElement, { messages: Msg[]; state: VoiceStat
                 className={cn(
                   "max-w-[78%] px-3.5 py-2 rounded-2xl text-sm leading-snug",
                   isUser
-                    ? "bg-[#fdd043] text-[#0a1928] rounded-br-sm shadow"
+                    ? "bg-[#e74c3c] text-white rounded-br-sm shadow"
                     : "bg-white/5 text-white/90 border border-white/5 rounded-bl-sm"
                 )}
               >
@@ -735,8 +735,8 @@ function Controls({
             className={cn(
               "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition",
               state === "muted"
-                ? "bg-[#ff6b5b]/15 text-[#ff6b5b] hover:bg-[#ff6b5b]/25"
-                : "bg-[#fdd043] text-[#0a1928] hover:bg-[#ffda5c]",
+                ? "bg-[#e74c3c]/15 text-[#e74c3c] hover:bg-[#e74c3c]/25"
+                : "bg-[#e74c3c] text-white hover:bg-[#cf3a2e]",
               !canAct && "opacity-40 cursor-not-allowed"
             )}
           >
@@ -769,14 +769,14 @@ function Controls({
             className={cn(
               "flex-1 rounded-full px-4 py-2.5 text-sm outline-none transition",
               "bg-white/5 border border-white/10 text-white placeholder:text-white/35",
-              "focus:border-[#fdd043]/50 focus:bg-white/10",
+              "focus:border-[#e74c3c]/50 focus:bg-white/10",
               !canAct && "opacity-40"
             )}
           />
           <button
             type="submit"
             disabled={!canAct || !chatInput.trim()}
-            className="shrink-0 h-10 w-10 rounded-full bg-[#fdd043] text-[#0a1928] hover:bg-[#ffda5c] disabled:opacity-40 flex items-center justify-center transition"
+            className="shrink-0 h-10 w-10 rounded-full bg-[#e74c3c] text-white hover:bg-[#cf3a2e] disabled:opacity-40 flex items-center justify-center transition"
           >
             <Send className="w-4 h-4" />
           </button>
@@ -793,7 +793,7 @@ function Controls({
 function LoadingState() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-4">
-      <Loader2 className="w-7 h-7 text-[#fdd043] animate-spin" />
+      <Loader2 className="w-7 h-7 text-[#e74c3c] animate-spin" />
       <div className="text-sm text-white/60">Calling AI Phil…</div>
     </div>
   );
@@ -806,7 +806,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
       <button
         type="button"
         onClick={onRetry}
-        className="px-4 py-2 rounded-full bg-[#fdd043] text-[#0a1928] text-sm font-medium hover:bg-[#ffda5c] transition"
+        className="px-4 py-2 rounded-full bg-[#e74c3c] text-white text-sm font-medium hover:bg-[#cf3a2e] transition"
       >
         Try again
       </button>
@@ -836,9 +836,9 @@ function AmbientParticles() {
       {particles.map((p) => (
         <motion.span
           key={p.id}
-          className="absolute rounded-full bg-[#fdd043]/20"
+          className="absolute rounded-full bg-[#e74c3c]/15"
           style={{ left: `${p.x}%`, top: `${p.y}%`, width: p.size, height: p.size }}
-          animate={{ y: [0, -20, 0], opacity: [0.15, 0.4, 0.15] }}
+          animate={{ y: [0, -20, 0], opacity: [0.12, 0.35, 0.12] }}
           transition={{ duration: p.duration, delay: p.delay, repeat: Infinity, ease: "easeInOut" }}
         />
       ))}
