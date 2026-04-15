@@ -6,16 +6,7 @@ const FOLDER_ID = "1WvYoladPakRleEscONNFXVgHv3-hjbEE";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HUME_TOOL_SECRET = Deno.env.get("HUME_TOOL_SECRET")!;
-
-function getGoogleServiceAccountKey(): Record<string, string> {
-  const raw = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY");
-  if (!raw) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY secret is not set");
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON");
-  }
-}
+// Google OAuth credentials read lazily inside getGoogleAccessToken()
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -25,14 +16,6 @@ async function sha256(text: string): Promise<string> {
   return Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-}
-
-function toBase64Url(input: string | ArrayBuffer): string {
-  const str =
-    typeof input === "string"
-      ? input
-      : String.fromCharCode(...new Uint8Array(input));
-  return btoa(str).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
 async function withRetry<T>(
@@ -52,59 +35,34 @@ async function withRetry<T>(
 // ─── Google Auth ─────────────────────────────────────────────────────────────
 
 async function getGoogleAccessToken(): Promise<string> {
-  const GOOGLE_SA_KEY = getGoogleServiceAccountKey();
-  const now = Math.floor(Date.now() / 1000);
+  const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
+  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
+  const refreshToken = Deno.env.get("GOOGLE_REFRESH_TOKEN");
 
-  const header = { alg: "RS256", typ: "JWT" };
-  const payload = {
-    iss: GOOGLE_SA_KEY.client_email,
-    scope: "https://www.googleapis.com/auth/drive.readonly",
-    aud: "https://oauth2.googleapis.com/token",
-    exp: now + 3600,
-    iat: now,
-  };
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error(
+      "Missing Google OAuth credentials — set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN in Supabase secrets",
+    );
+  }
 
-  const signingInput =
-    `${toBase64Url(JSON.stringify(header))}.${toBase64Url(JSON.stringify(payload))}`;
-
-  // Parse PKCS8 PEM key
-  const pemContents = GOOGLE_SA_KEY.private_key
-    .replace(/-----BEGIN PRIVATE KEY-----/, "")
-    .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\n/g, "");
-  const binaryKey = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    binaryKey,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    new TextEncoder().encode(signingInput),
-  );
-
-  const jwt = `${signingInput}.${toBase64Url(signature)}`;
-
-  const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
+      grant_type: "refresh_token",
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
     }),
   });
 
-  if (!tokenResp.ok) {
-    const err = await tokenResp.text();
-    throw new Error(`Google auth failed (${tokenResp.status}): ${err}`);
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Google auth failed (${resp.status}): ${err}`);
   }
 
-  const { access_token } = await tokenResp.json();
+  const { access_token } = await resp.json();
+  if (!access_token) throw new Error("Google auth response missing access_token");
   return access_token;
 }
 
