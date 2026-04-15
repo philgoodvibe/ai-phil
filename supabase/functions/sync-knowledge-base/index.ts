@@ -85,6 +85,10 @@ async function listModifiedFiles(
     orderBy: "modifiedTime asc",
     // TODO: handle nextPageToken for folders with >100 docs (not needed at current scale of ~50 max)
     pageSize: "100",
+    // Required to search Shared Drive content (silently returns nothing without these)
+    includeItemsFromAllDrives: "true",
+    supportsAllDrives: "true",
+    corpora: "allDrives",
   });
 
   const resp = await fetch(
