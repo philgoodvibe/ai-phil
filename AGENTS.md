@@ -44,11 +44,12 @@ The vault is at:
 - **Embed loader** — `public/ai-phil-embed.js` (the one-line `<script>` that injects the iframe)
 - **Brand assets** — `public/ai-phil-avatar.jpg`
 - **Scripts** — `scripts/*.ts` (ingestion, eval, test clients — some not yet migrated from SAGE)
+- **Drive sync** — `supabase/functions/sync-knowledge-base/` (edge function), `supabase/migrations/` (sync_state, sync_runs, pg_cron schedule), `src/app/api/admin/sync-docs/` (manual trigger)
 - **Deployment config** — `next.config.js` (CORS + frame-ancestors), `vercel.json` if present
 
 ## What this repo CONSUMES (shared, do NOT duplicate)
 
-- **Supabase project `ylppltmwueasbdexepip`** — tables `kb_documents`, `ai_phil_prospects` and edge functions `search-knowledge-base`, `ingest-document`, `hume-admin`
+- **Supabase project `ylppltmwueasbdexepip`** — tables `kb_documents`, `ai_phil_prospects`, `sync_state`, `sync_runs` and edge functions `search-knowledge-base`, `ingest-document`, `hume-admin`, `sync-knowledge-base`
 - **Hume EVI** — 3 configs (New Member / Implementation Coach / Discovery), 2 tools, 1 custom voice ("Philip Voice"). Manage via `https://app.hume.ai` or the `hume-admin` Supabase edge function.
 - **Knowledge source** — Google Docs folder `60-content/Ai Phil Google Docs/` in the vault (Drive folder ID: `1WvYoladPakRleEscONNFXVgHv3-hjbEE`). Edit there, the `sync-knowledge-base` Supabase edge function syncs to `kb_documents` every 30 minutes automatically.
   - ⚠️ **LIVE SYNC — WRITES GO DIRECTLY INTO PHIL'S BRAIN.** Any Google Doc placed in this folder is automatically embedded into Phil's knowledge base within 30 minutes. Do NOT put docs for other projects (Lea, GHL bots, etc.) in this folder. Wrong docs = Phil gives wrong answers to real users.
@@ -103,8 +104,8 @@ Production equivalents swap `http://localhost:3000` → `https://ai-phil.vercel.
 
 **Phase 5: Post-migration feature work.** The standalone extraction is complete. Priorities (in [[_ROADMAP]] order):
 
-1. Fix n8n Google Drive auto-sync (unblocks content update flow)
-2. Build eval harness (answer quality regression protection)
+1. ~~Fix n8n Google Drive auto-sync~~ — **SHIPPED 2026-04-15.** Replaced with Supabase edge function + pg_cron. See `supabase/functions/sync-knowledge-base/`.
+2. Build eval harness (answer quality regression protection) ← **next up**
 3. Implement persistent memory (see `_MEMORY-DESIGN.md`)
 4. Add Implementation Coach tools (lookup_member_status, schedule_meeting, etc.)
 5. Observability layer
