@@ -118,7 +118,7 @@ Per `80-processes/Agent-Coordination.md`:
 
 1. Update `60-content/ai-phil/_ROADMAP.md` — move the item from Priorities → Shipped with a date
 2. If you made a major technical decision, write a `70-decisions/DR-YYYYMMDD-*.md`
-3. Write a 3-5 line session summary to `50-meetings/` (or `50-sessions/` if it exists)
+3. Write a 3-5 line session summary to `50-meetings/` (or `50-sessions/` if it exists) — title format: `🔧 Short Description` using the emoji convention in `Agent-Coordination.md §6`
 
 Don't skip this — future sessions rely on it.
 
