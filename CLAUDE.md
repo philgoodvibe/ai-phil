@@ -26,6 +26,22 @@ DELETE FROM sync_state WHERE key IN ('doc_hash:gdoc:{id}');
 
 ---
 
+## ⚠️ BEFORE ANY IMPLEMENTATION — non-negotiable
+
+This rule exists because skipping it on 2026-04-15/16 cost ~3 hours of unproductive iteration building n8n workflows on unverified GHL webhook format assumptions. The superpowers skills prevent exactly that failure mode. Use them.
+
+**Before writing any edge function, migration, workflow, config, or new code — follow in order:**
+
+1. `Skill("superpowers:brainstorming")` — check project context (read relevant existing code FIRST, especially neighboring edge functions like `supabase/functions/ghl-message-receiver/` or `sync-knowledge-base/` that show the canonical patterns), propose 2-3 approaches with trade-offs, get Phillip's explicit approval on a design
+2. `Skill("superpowers:writing-plans")` — produce a bite-sized implementation plan; save to `vault/80-processes/` or equivalent
+3. `Skill("superpowers:subagent-driven-development")` — execute the plan one task at a time with spec-compliance review and code-quality review between tasks
+
+**Never skip step 1 because "this feels simple."** Simple things are where skipped brainstorming costs the most. The 2026-04-15/16 n8n detour happened because the real GHL webhook format was sitting in `ghl-message-receiver/index.ts` waiting to be read, and we built on assumed format instead.
+
+**If a session starts mid-stream (compacted, resumed, handed off):** check whether a prior plan doc exists (look in `vault/80-processes/` for `*-Build-Plan-*.md`). If yes, follow `superpowers:executing-plans` or `superpowers:subagent-driven-development` to continue. If no, fall back to step 1.
+
+---
+
 ## TypeScript conventions
 
 - **Strict mode** — `tsc --noEmit` must pass before any commit. Run `npm run typecheck`.
@@ -38,9 +54,13 @@ DELETE FROM sync_state WHERE key IN ('doc_hash:gdoc:{id}');
 ## Supabase conventions
 
 - DB columns are `snake_case`. TypeScript interfaces mirror that (don't camelCase on the TS side unless through a transform layer).
-- Supabase project: `ylppltmwueasbdexepip`
+- Supabase project: `ylppltmwueasbdexepip` (shared with SAGE/aiai-mastermind-app-v2)
 - For server-side queries use `supabase-server.ts`; for client-side use the Supabase client from `@supabase/ssr`.
 - **No schema migrations without Phillip's review.** Draft the SQL and pause.
+- **After any schema migration session:** run `get_advisors('security')` via Supabase MCP and fix any ERRORs before closing. This is a standing rule — a 2-day gap cost us 3 publicly exposed tables in April 2026.
+- **RLS is mandatory** on every public-schema table exposed to PostgREST. `service_role` bypasses RLS automatically; anon/authenticated do not.
+- **Never hardcode API keys, JWTs, or webhook URLs** in DB functions or source files. Use Supabase vault secrets or env vars. (Lesson: hardcoded anon JWT found in a DB trigger function, 2026-04-15.)
+- AI Phil tables in this project: `kb_documents` (knowledge base), `ai_phil_prospects` (discovery leads), `sync_state`, `sync_runs`. All accessed via service_role key server-side — RLS on these tables is intentional and must not be disabled.
 
 ## Hume EVI conventions
 
