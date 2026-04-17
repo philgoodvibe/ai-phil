@@ -22,19 +22,13 @@ const GHL_MESSAGE_TYPES: Record<number, string> = {
 
 // ---------------------------------------------------------------------------
 // Supabase client (service role — bypasses RLS)
-// Lazy-initialized to allow tests to run without env vars
+// Env fallbacks let `deno test` run without real credentials — the test
+// suite only exercises pure functions and never hits Supabase.
 // ---------------------------------------------------------------------------
-let supabase: ReturnType<typeof createClient> | null = null;
-
-function getSupabase() {
-  if (!supabase) {
-    supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
-  }
-  return supabase;
-}
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL') ?? 'http://localhost',
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? 'test-key'
+);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -194,6 +188,49 @@ export function roleDescription(role: AgencyRole): string {
     case 'manager': return 'Agency Manager (billing changes managed by account owner)';
     case 'team_member': return 'Team Member (billing and team management managed by account owner)';
     case 'unknown': return 'Team Member (role unknown — most restrictive default applied)';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Non-fatal agent_signals writer (public schema)
+// ---------------------------------------------------------------------------
+async function writeAgentSignal(sig: AgentSignalPayload): Promise<void> {
+  try {
+    const { error } = await supabase.from('agent_signals').insert({
+      source_agent: sig.source_agent,
+      target_agent: sig.target_agent,
+      signal_type: sig.signal_type,
+      status: sig.status ?? 'delivered',
+      channel: sig.channel ?? 'open',
+      priority: sig.priority ?? 5,
+      payload: sig.payload ?? {},
+    });
+    if (error) console.error('[agent_signals] insert error:', error.message);
+  } catch (err) {
+    console.error('[agent_signals] write threw:', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Google Chat alert (non-fatal) — real-time Keyssa alert
+// ---------------------------------------------------------------------------
+async function postGoogleChatAlert(text: string): Promise<void> {
+  const url = Deno.env.get('GOOGLE_CHAT_WEBHOOK_URL');
+  if (!url) {
+    console.error('[gchat] GOOGLE_CHAT_WEBHOOK_URL not set — skipping alert');
+    return;
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      console.error(`[gchat] alert ${res.status}: ${await res.text()}`);
+    }
+  } catch (err) {
+    console.error('[gchat] alert threw:', err);
   }
 }
 
