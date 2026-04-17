@@ -599,6 +599,31 @@ Deno.serve(async (req: Request) => {
       modelUsed = 'fallback';
     }
 
+    // Banned-word guardrail: one retry with correction, then send anyway
+    if (containsBannedWord(replyText)) {
+      console.warn('[guardrail] banned word detected in first draft, retrying');
+      try {
+        const retryPrompt = systemPrompt + '\n\nCRITICAL CORRECTION: Your previous draft contained a banned phrase from the BANNED_WORDS list. Rewrite without any banned vocabulary. Use Phillip\'s direct operator voice: specific numbers, real agency size/carrier/geography references, short sentences, no coach-speak.';
+        const retried = await callClaude(modelUsed, intent === 'support' ? 200 : 300, retryPrompt, messageBody);
+        if (!containsBannedWord(retried)) {
+          replyText = retried;
+        } else {
+          console.error('[guardrail] banned word still present after retry, sending anyway, flagging for review');
+          await writeAgentSignal({
+            source_agent: 'ghl-sales-agent',
+            target_agent: 'richie-cc2',
+            signal_type: 'banned-word-after-retry',
+            status: 'flagged',
+            channel: 'open',
+            priority: 2,
+            payload: { contact_id: contactId, reply_preview: replyText.substring(0, 300) },
+          });
+        }
+      } catch (err) {
+        console.error('[guardrail] retry threw, sending original:', err);
+      }
+    }
+
     // Strip markdown and enforce length cap for SMS
     if (channel === 'sms') {
       replyText = stripMarkdown(replyText);
