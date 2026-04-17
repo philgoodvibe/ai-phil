@@ -193,7 +193,15 @@ const ESCALATION_KEYWORDS: readonly string[] = [
 export function matchesEscalationKeyword(message: string): boolean {
   if (!message) return false;
   const lower = message.toLowerCase();
-  return ESCALATION_KEYWORDS.some(kw => lower.includes(kw));
+  return ESCALATION_KEYWORDS.some(kw => {
+    // Single-word keywords use word-boundary matching to avoid false positives
+    // like "quit" matching inside "quite", or "leaving" inside "believing".
+    // Multi-word phrases (contain a space) use substring match.
+    if (!kw.includes(' ')) {
+      return new RegExp(`\\b${kw}\\b`).test(lower);
+    }
+    return lower.includes(kw);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -574,6 +582,14 @@ export function parseIntent(raw: string): Intent {
   return 'support';
 }
 
+// Exported for test coverage — do not change category names without updating parseIntent + VALID_INTENTS
+export const CLASSIFIER_CATEGORY_DEFS = `onboarding = login, Google Workspace setup, mastery.aiaimastermind.com access, password reset, getting started
+content = workshop replays (IMM/SCMM/ATOM), module navigation, portal, where to find recordings
+event = event links, times, schedules, replay availability for a specific event
+coaching = strategy or advice question (e.g., "should I run X ads?", "how do I price this?", "what offer should I build?")
+support = logistical question, weekly call schedule, benefits overview, DFY Setup vs DFY Package distinction, identity/greeting, community questions (sharing work-in-progress, group Telegram norms, where to post for peer feedback, asking what other members think)
+escalate = clearly upset beyond keyword matches, billing/cancellation/legal issue, account-specific problem requiring human judgment, or looping without resolution`;
+
 async function classifyMemberIntent(messageBody: string, role: AgencyRole): Promise<Intent> {
   const system = 'You are a message router for a member support inbox. Reply with exactly one word only: onboarding, content, event, coaching, support, or escalate. No punctuation, no explanation.';
   const user = `Classify this inbound message from an active member.
@@ -581,12 +597,7 @@ async function classifyMemberIntent(messageBody: string, role: AgencyRole): Prom
 Member role: ${role}
 Message: "${messageBody}"
 
-onboarding = login, Google Workspace setup, mastery.aiaimastermind.com access, password reset, getting started
-content = workshop replays (IMM/SCMM/ATOM), module navigation, portal, where to find recordings
-event = event links, times, schedules, replay availability for a specific event
-coaching = strategy or advice question (e.g., "should I run X ads?", "how do I price this?", "what offer should I build?")
-support = logistical question, weekly call schedule, benefits overview, DFY Setup vs DFY Package distinction, identity/greeting
-escalate = clearly upset beyond keyword matches, account-specific problem requiring human judgment, or looping without resolution
+${CLASSIFIER_CATEGORY_DEFS}
 
 Reply with one word:`;
 
@@ -880,6 +891,11 @@ Deno.serve(async (req: Request) => {
     if (channel === 'sms') {
       replyText = stripMarkdown(replyText);
       if (replyText.length > 480) replyText = replyText.substring(0, 477) + '...';
+    }
+
+    // Append SMS signature for member-facing replies
+    if (channel === 'sms') {
+      replyText = replyText + '\n-Ai Phil';
     }
 
     // Step 10: Send reply

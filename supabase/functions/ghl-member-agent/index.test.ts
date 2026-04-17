@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { resolveChannel, memberSupportPrompt } from './index.ts';
+import { resolveChannel, memberSupportPrompt, matchesEscalationKeyword, parseIntent, CLASSIFIER_CATEGORY_DEFS } from './index.ts';
 
 Deno.test('member-agent resolveChannel: webhook rawMessageType wins', () => {
   const out = resolveChannel({
@@ -97,3 +97,34 @@ for (const intent of INTENTS_THAT_USE_MEMBER_SUPPORT_PROMPT) {
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Intent classifier regression tests — Sharon Layman incident (2026-04-17)
+// ---------------------------------------------------------------------------
+
+// Test 1: Sharon's exact message must NOT match escalation keywords
+// (Pure function, no Claude call needed)
+Deno.test('matchesEscalationKeyword: community-sharing question is not an escalation keyword match', () => {
+  const sharonMessage = "Hi!! What thoughts are members of our community having about sharing with each other all that we're creating? I've got quite a bit started so a new hire can move forward quickly.";
+  assertEquals(matchesEscalationKeyword(sharonMessage), false);
+});
+
+// Test 2: The classifier prompt's 'support' definition must cover community/sharing questions.
+// Regression guard: if someone removes these anchors from the prompt, this test breaks loudly.
+Deno.test('CLASSIFIER_CATEGORY_DEFS: support definition covers community/sharing questions', async () => {
+  const supportLine = CLASSIFIER_CATEGORY_DEFS
+    .split('\n')
+    .find((line: string) => line.startsWith('support'));
+  assert(supportLine !== undefined, 'Expected a "support = ..." line in CLASSIFIER_CATEGORY_DEFS');
+  assert(
+    supportLine.includes('community') || supportLine.includes('sharing') || supportLine.includes('Telegram'),
+    `Expected "support" line to mention community/sharing/Telegram but got: ${supportLine}`,
+  );
+});
+
+// Test 3: parseIntent falls back to 'support' (not 'escalate') for unrecognised responses
+Deno.test('parseIntent: unrecognised model output defaults to support (not escalate)', () => {
+  assertEquals(parseIntent('unknown_category'), 'support');
+  assertEquals(parseIntent(''), 'support');
+  assertEquals(parseIntent('  escalade  '), 'support'); // close but not exact
+});
