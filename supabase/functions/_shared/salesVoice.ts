@@ -59,30 +59,12 @@ export function isVoiceContext(s: string): s is VoiceContext {
 }
 
 /**
- * A single F.O.R.M. fact extracted from a past conversation.
- * Shape matches voice doc §10 and the `ops.contact_rapport.facts` table.
+ * F.O.R.M. fact types live in rapport.ts (where the read/extract/merge/store
+ * operations live). Re-exported here so existing consumers of salesVoice.ts
+ * that reference `Fact` / `RapportFacts` continue to work unchanged.
  */
-export interface Fact {
-  /** Short machine-ish key, e.g. "dog_name", "agency_size", "carrier". */
-  key: string;
-  /** Human-readable value, e.g. "Lucy", "3 producers", "State Farm". */
-  value: string;
-  /** Conversation identifier the fact was extracted from. */
-  source_conv: string;
-  /** ISO-8601 timestamp of extraction. */
-  extracted_at: string;
-}
-
-/**
- * F.O.R.M. rapport facts bucketed by pillar (voice doc §4, §10).
- * Append-only in storage; never silently overwritten.
- */
-export interface RapportFacts {
-  family: Fact[];
-  occupation: Fact[];
-  recreation: Fact[];
-  money: Fact[];
-}
+import type { Fact, RapportFacts } from './rapport.ts';
+export type { Fact, RapportFacts };
 
 // ---------------------------------------------------------------------------
 // Banned words (voice doc §6 — TRUE outliers in Phillip's 759-meeting corpus)
