@@ -234,6 +234,236 @@ async function postGoogleChatAlert(text: string): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// GHL API helpers
+// ---------------------------------------------------------------------------
+async function fetchGhlContact(contactId: string): Promise<GhlContact | null> {
+  const apiKey = Deno.env.get('GHL_API_KEY');
+  if (!apiKey) {
+    console.error('[ghl] GHL_API_KEY missing');
+    return null;
+  }
+  try {
+    const res = await fetch(`${GHL_API_BASE}/contacts/${contactId}`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Version: GHL_API_VERSION },
+    });
+    if (!res.ok) {
+      console.error(`[ghl] contact fetch ${res.status}: ${await res.text()}`);
+      return null;
+    }
+    const data = await res.json() as { contact?: GhlContact };
+    return data.contact ?? null;
+  } catch (err) {
+    console.error('[ghl] contact fetch threw:', err);
+    return null;
+  }
+}
+
+type ConversationLookup = { id: string; suggestedChannel: Channel | null };
+
+async function lookupConversation(contactId: string): Promise<ConversationLookup | null> {
+  const apiKey = Deno.env.get('GHL_API_KEY');
+  if (!apiKey) return null;
+  try {
+    const params = new URLSearchParams({
+      contactId,
+      locationId: GHL_LOCATION_ID,
+      limit: '10',
+      sortBy: 'last_message_date',
+      sort: 'desc',
+    });
+    const res = await fetch(`${GHL_API_BASE}/conversations/search?${params}`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Version: GHL_API_VERSION },
+    });
+    if (!res.ok) {
+      console.error(`[ghl] conversation lookup ${res.status}: ${await res.text()}`);
+      return null;
+    }
+    const data = await res.json() as { conversations?: Array<{ id: string; type?: string; lastMessageType?: string }> };
+    const convos = data.conversations ?? [];
+    const phoneTypes = new Set(['TYPE_PHONE', 'TYPE_CALL', 'TYPE_IVR_CALL']);
+    const emailConvo = convos.find(c => (c.type ?? '').toUpperCase().includes('EMAIL'));
+    const nonPhoneConvo = convos.find(c => !phoneTypes.has(c.type ?? ''));
+    const chosen = emailConvo ?? nonPhoneConvo ?? convos[0] ?? null;
+    if (!chosen) return null;
+
+    const ct = (chosen.type ?? '').toUpperCase();
+    const lmt = (chosen.lastMessageType ?? '').toUpperCase();
+    const suggestedChannel: Channel | null =
+      ct.includes('EMAIL') || lmt.includes('EMAIL') ? 'email' :
+      (phoneTypes.has(ct) || lmt.includes('CALL') || lmt.includes('IVR') || lmt.includes('PHONE')) ? 'phone' :
+      'sms';
+
+    return { id: chosen.id, suggestedChannel };
+  } catch (err) {
+    console.error('[ghl] conversation lookup threw:', err);
+    return null;
+  }
+}
+
+async function fetchGhlConversationHistory(conversationId: string): Promise<GhlMessage[]> {
+  const apiKey = Deno.env.get('GHL_API_KEY');
+  if (!apiKey) return [];
+  try {
+    const res = await fetch(
+      `${GHL_API_BASE}/conversations/${conversationId}/messages?limit=20`,
+      { headers: { Authorization: `Bearer ${apiKey}`, Version: GHL_API_VERSION } }
+    );
+    if (!res.ok) {
+      console.error(`[ghl] history fetch ${res.status}: ${await res.text()}`);
+      return [];
+    }
+    const data = await res.json() as { messages?: { messages?: GhlMessage[] } };
+    const msgs = data.messages?.messages ?? [];
+    return [...msgs].reverse();
+  } catch (err) {
+    console.error('[ghl] history fetch threw:', err);
+    return [];
+  }
+}
+
+async function fetchLocalHistory(contactId: string): Promise<GhlMessage[]> {
+  try {
+    const { data, error } = await supabase
+      .schema('ops')
+      .from('ai_inbox_conversation_memory')
+      .select('role, message')
+      .eq('contact_id', contactId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (error) {
+      console.error('[local-history] read error:', error.message);
+      return [];
+    }
+    return (data ?? []).reverse().map(row => ({
+      direction: (row.role === 'assistant' ? 'outbound' : 'inbound') as 'inbound' | 'outbound',
+      body: row.message as string,
+    }));
+  } catch (err) {
+    console.error('[local-history] threw:', err);
+    return [];
+  }
+}
+
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/gs, '$1')
+    .replace(/\*(.+?)\*/gs, '$1')
+    .replace(/__(.+?)__/gs, '$1')
+    .replace(/_(.+?)_/gs, '$1')
+    .replace(/`{1,3}[^`]*`{1,3}/g, '')
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^\s*[-*+]\s+/gm, '• ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function sendGhlReply(
+  contactId: string,
+  replyText: string,
+  channel: Channel
+): Promise<boolean> {
+  if (channel === 'phone') {
+    console.log('[ghl] skipping reply for phone/calls channel');
+    return false;
+  }
+  const apiKey = Deno.env.get('GHL_API_KEY');
+  if (!apiKey) {
+    console.error('[ghl] cannot send reply — GHL_API_KEY missing');
+    return false;
+  }
+  const ghlType = channel === 'email' ? 'Email' : 'SMS';
+
+  const emailSignature = [
+    '<br><br>',
+    '<hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0">',
+    '<p style="margin:0;font-family:sans-serif;font-size:13px;color:#555">',
+    '<strong>Ai Phil</strong> &nbsp;|&nbsp; AI Assistant, AiAi Mastermind<br>',
+    '<em style="color:#888">This reply was generated by AI. A human teammate is always available if needed.</em>',
+    '</p>',
+  ].join('');
+
+  const payload = channel === 'email'
+    ? {
+        type: ghlType,
+        contactId,
+        subject: 'Re: Your message',
+        html: replyText.replace(/\n/g, '<br>') + emailSignature,
+      }
+    : { type: ghlType, contactId, message: replyText };
+
+  try {
+    const res = await fetch(`${GHL_API_BASE}/conversations/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Version: GHL_API_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.error(`[ghl] send reply ${res.status}: ${await res.text()}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[ghl] send reply threw:', err);
+    return false;
+  }
+}
+
+// Add a tag to a contact (non-fatal — used for escalation routing)
+async function addGhlTag(contactId: string, tag: string): Promise<boolean> {
+  const apiKey = Deno.env.get('GHL_API_KEY');
+  if (!apiKey) return false;
+  try {
+    const res = await fetch(`${GHL_API_BASE}/contacts/${contactId}/tags`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Version: GHL_API_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ tags: [tag] }),
+    });
+    if (!res.ok) {
+      console.error(`[ghl] addTag ${res.status}: ${await res.text()}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[ghl] addTag threw:', err);
+    return false;
+  }
+}
+
+// Post a contact note (non-fatal — visible to team in GHL UI)
+async function addGhlContactNote(contactId: string, noteBody: string): Promise<boolean> {
+  const apiKey = Deno.env.get('GHL_API_KEY');
+  if (!apiKey) return false;
+  try {
+    const res = await fetch(`${GHL_API_BASE}/contacts/${contactId}/notes`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Version: GHL_API_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ body: noteBody }),
+    });
+    if (!res.ok) {
+      console.error(`[ghl] addNote ${res.status}: ${await res.text()}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[ghl] addNote threw:', err);
+    return false;
+  }
+}
+
 // Stub handler — replaced in Task 11
 Deno.serve(async (_req: Request) => {
   return new Response('ghl-member-agent scaffold', { status: 200 });
