@@ -68,6 +68,67 @@ interface AgentSignalPayload {
   payload?: Record<string, unknown>;
 }
 
+// ---------------------------------------------------------------------------
+// Webhook body extractors (verbatim from ghl-sales-agent)
+// ---------------------------------------------------------------------------
+export function extractMessageBody(body: Record<string, unknown>): string | null {
+  if (body.message && typeof body.message === 'object' && (body.message as Record<string, unknown>).body) {
+    return String((body.message as Record<string, unknown>).body);
+  }
+  if (body.message_body && typeof body.message_body === 'string') return body.message_body;
+  if (body.message && typeof body.message === 'string') return body.message;
+  if (body.last_message && typeof body.last_message === 'string') return body.last_message;
+  return null;
+}
+
+export function extractMessageType(body: Record<string, unknown>): string | null {
+  if (body.message && typeof body.message === 'object' && (body.message as Record<string, unknown>).type) {
+    const t = (body.message as Record<string, unknown>).type as number;
+    return GHL_MESSAGE_TYPES[t] || String(t);
+  }
+  if (body.message_type && typeof body.message_type === 'string') return body.message_type;
+  if (body.type && typeof body.type === 'string') return body.type;
+  return null;
+}
+
+export function normalizeChannel(messageType: string): Channel {
+  const t = messageType.toLowerCase();
+  if (t === 'email') return 'email';
+  if (t === 'calls' || t === 'phone') return 'phone';
+  return 'sms';
+}
+
+export function extractContactId(body: Record<string, unknown>): string | null {
+  if (body.contact_id && typeof body.contact_id === 'string') return body.contact_id;
+  if (body.contactId && typeof body.contactId === 'string') return body.contactId;
+  if (body.contact && typeof body.contact === 'object' && (body.contact as Record<string, unknown>).id) {
+    return String((body.contact as Record<string, unknown>).id);
+  }
+  return null;
+}
+
+export function extractConversationId(body: Record<string, unknown>): string | null {
+  if (body.conversation_id && typeof body.conversation_id === 'string') return body.conversation_id;
+  if (body.conversationId && typeof body.conversationId === 'string') return body.conversationId;
+  if (body.conversation && typeof body.conversation === 'object' && (body.conversation as Record<string, unknown>).id) {
+    return String((body.conversation as Record<string, unknown>).id);
+  }
+  return null;
+}
+
+export function extractLocationId(body: Record<string, unknown>): string | null {
+  if (body.location && typeof body.location === 'object' && (body.location as Record<string, unknown>).id) {
+    return String((body.location as Record<string, unknown>).id);
+  }
+  if (body.location_id && typeof body.location_id === 'string') return body.location_id;
+  return null;
+}
+
+export function hasMemberTag(tags: string[] | undefined): boolean {
+  if (!tags) return false;
+  return tags.some(t => t.includes(MEMBER_TAG_SUBSTR));
+}
+
 // Stub handler — replaced in Task 10
 Deno.serve(async (_req: Request) => {
   return new Response('ghl-member-agent scaffold', { status: 200 });
