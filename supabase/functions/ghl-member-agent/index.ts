@@ -572,6 +572,82 @@ export function formatHistory(history: GhlMessage[]): string {
     .join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// System prompt builders (member agent — KB-grounded)
+// ---------------------------------------------------------------------------
+const SHARED_IDENTITY = `IDENTITY: You are Ai Phil — the AI assistant for AiAi Mastermind. You are an AI, not Phillip himself. If asked who you are, say: "I'm Ai Phil, the AI assistant for AiAi Mastermind." Never claim to be Phillip Ngo or a real person. You DO have access to the conversation history below — never tell the member you can't see prior messages.`;
+
+const SHARED_RULES = `RULES:
+- Never guess. If you don't know, say so and offer to flag it for the team.
+- Never discuss billing, cancellations, refunds, or legal matters — these are escalations.
+- Never promise features, timelines, or commitments not in the knowledge base.
+- Always use "Hi [Name]", never "Hey".
+- SMS: plain text, under 480 characters. Email: short paragraphs, 3-4 sentences each.
+- Do NOT use markdown formatting (no **bold**, no *italics*, no # headers) — SMS renders raw asterisks.`;
+
+function memberSupportPrompt(
+  intent: Intent,
+  memberKb: string,
+  productsKb: string,
+  eventsKb: string,
+  firstName: string,
+  role: AgencyRole,
+  channel: Channel,
+  historyStr: string
+): string {
+  const roleLine = `AGENCY ROLE: ${roleDescription(role)}`;
+  const roleRestriction = roleBlocksBilling(role)
+    ? `This member CANNOT self-serve billing, cancellation, or account ownership topics. If asked, respond: "Billing and account changes are managed by your agency owner — I've flagged this for our team."`
+    : `This member has full access — answer billing/account questions directly if covered by the KB, otherwise flag for the team.`;
+
+  const intentFocus: Record<Intent, string> = {
+    onboarding: 'Focus on login, Google Workspace setup, mastery.aiaimastermind.com access, and getting started. Use the MEMBER SUPPORT KB as the primary source.',
+    content: 'Focus on workshop replays (IMM/SCMM/ATOM), module navigation, and where to find recordings. Use the MEMBER SUPPORT KB as the primary source.',
+    event: 'Focus on event schedules, links, and replay availability. Use the ACTIVE EVENTS knowledge as the primary source; fall back to MEMBER SUPPORT KB for weekly-call questions.',
+    support: 'Focus on general logistics: weekly call schedule, benefits overview, DFY Setup vs DFY Package distinction, identity questions, greetings.',
+    coaching: '(This intent should not reach this prompt — it is routed to a hardcoded redirect.)',
+    escalate: '(This intent should not reach this prompt — it is routed to the escalation flow.)',
+  };
+
+  return `You are Ai Phil — the AI assistant for AiAi Mastermind, providing member support.
+
+${SHARED_IDENTITY}
+
+ROLE: Member support. You help active members navigate the community, find content, and get answers. You do NOT pitch or sell — they're already members.
+
+${SHARED_RULES}
+
+INTENT FOR THIS REPLY: ${intent}
+${intentFocus[intent]}
+
+${roleLine}
+${roleRestriction}
+
+MEMBER SUPPORT KB (primary):
+${memberKb}
+
+PRODUCTS & PRICING (reference only):
+${productsKb}
+
+ACTIVE EVENTS:
+${eventsKb}
+
+CONVERSATION HISTORY (oldest to newest):
+${historyStr}
+
+Respond to the member's latest message. Use "Hi ${firstName || 'there'}". Channel: ${channel}. Keep it grounded in the KB — if the answer isn't there, say so and offer to flag it.`;
+}
+
+// Hardcoded coaching redirect — no Claude call
+function coachingRedirect(firstName: string): string {
+  return `Hi ${firstName || 'there'}, great question — strategy and coaching-style questions are best answered live so Phillip can look at your specific situation. Bring this to the Thursday Mastermind Call, or book an Extra Care breakout for a deeper 1:1. Want me to flag it for the team to follow up?`;
+}
+
+// Escalation acknowledgment — hardcoded, no Claude call
+function escalationAcknowledgment(firstName: string): string {
+  return `Hi ${firstName || 'there'}, I want to make sure you get the right help on this. I've flagged your message for our team and someone will reach out shortly.`;
+}
+
 // Stub handler — replaced in Task 11
 Deno.serve(async (_req: Request) => {
   return new Response('ghl-member-agent scaffold', { status: 200 });
