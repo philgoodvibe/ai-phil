@@ -159,3 +159,16 @@ Deno.test('non-sales contexts do NOT include VOCABULARY_BLOCK', () => {
   // "Automated Agency Circle" is unique to VOCABULARY_BLOCK (not in FORM/VOICE/etc.)
   assertEquals(supportPrompt.includes('Automated Agency Circle'), false);
 });
+
+Deno.test('VOCABULARY_BLOCK teaches canonical MAX + MAYA expansions + acronym rule', () => {
+  // Voice doc §6 "Branded AiAi product acronyms" — prospects don't know what MAX/MAYA mean;
+  // always expand on first mention. Locking in the canonical expansions so Sonnet has them
+  // at hand without needing to fetch the KB doc.
+  const emptyRapport: RapportFacts = { family: [], occupation: [], recreation: [], money: [] };
+  const prompt = buildSystemPrompt('sales-live', emptyRapport, '(no prior)', '');
+  assertStringIncludes(prompt, 'Marketing Ads Accelerator');
+  assertStringIncludes(prompt, 'Marketing Assistant to Your Agency');
+  assertStringIncludes(prompt, 'Automated Team Onboarding Machine');
+  // The rule itself must be present so the model knows WHY to expand
+  assertStringIncludes(prompt.toLowerCase(), 'expand');
+});
