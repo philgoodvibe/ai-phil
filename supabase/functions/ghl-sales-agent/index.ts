@@ -698,6 +698,19 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Step 10b: If this contact has an active followup row, push next_send_at
+    // forward 3 days. Auto-pause mechanism: live conversations shouldn't get hit
+    // with followups. Stale conversations auto-resume when the cron fires.
+    try {
+      const { error } = await supabase.schema('ops').from('ai_inbox_followup_queue')
+        .update({ next_send_at: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString() })
+        .eq('contact_id', contactId)
+        .lt('follow_up_number', 10); // never touch rows already graduated out of sequence
+      if (error) console.error('[followup-pause] update error:', error.message);
+    } catch (err) {
+      console.error('[followup-pause] threw:', err);
+    }
+
     // Step 11: Unknown intent — Google Chat alert + open_tickets
     if (intent === 'unknown') {
       const contactName = `${firstName} ${lastName}`.trim();
