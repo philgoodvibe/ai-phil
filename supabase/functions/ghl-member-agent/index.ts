@@ -22,11 +22,19 @@ const GHL_MESSAGE_TYPES: Record<number, string> = {
 
 // ---------------------------------------------------------------------------
 // Supabase client (service role — bypasses RLS)
+// Lazy-initialized to allow tests to run without env vars
 // ---------------------------------------------------------------------------
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-);
+let supabase: ReturnType<typeof createClient> | null = null;
+
+function getSupabase() {
+  if (!supabase) {
+    supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+  }
+  return supabase;
+}
 
 // ---------------------------------------------------------------------------
 // Types
