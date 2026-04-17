@@ -637,6 +637,22 @@ Deno.serve(async (req: Request) => {
       console.error('[memory] insert threw:', err);
     }
 
+    // Step 9b: Post-conversation F.O.R.M. extraction (non-fatal)
+    try {
+      const currentRapport = await fetchRapport(supabase, contactId);
+      const newFacts = await extractRapport(
+        { userMessage: messageBody, assistantReply: replyText, conversationId: conversationId ?? undefined },
+        currentRapport,
+        Deno.env.get('ANTHROPIC_API_KEY') ?? '',
+      );
+      if (Object.values(newFacts).some((arr) => arr.length > 0)) {
+        const merged = mergeRapportFacts(currentRapport, newFacts);
+        await storeRapport(supabase, contactId, merged);
+      }
+    } catch (err) {
+      console.error('[rapport] extract threw (non-fatal):', err);
+    }
+
     // Step 10: Checkout URL in reply → upsert follow-up queue (ignore duplicates)
     if (replyText.includes(CHECKOUT_URL) && (channel === 'sms' || channel === 'email')) {
       try {
