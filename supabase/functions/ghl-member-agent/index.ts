@@ -754,26 +754,36 @@ Deno.serve(async (req: Request) => {
     // Step 5: Escalation keyword pre-check — fast path, no Claude
     const keywordEscalation = matchesEscalationKeyword(messageBody);
 
-    // Step 6: Fetch all KB docs in parallel
-    const [memberKbRes, productsRes, eventsRes] = await Promise.allSettled([
-      fetchGoogleDoc(MEMBER_SUPPORT_DOC_ID, '(Member Support KB temporarily unavailable.)'),
-      fetchGoogleDoc(PRODUCTS_PRICING_DOC_ID, '(Products & Pricing KB temporarily unavailable.)'),
-      fetchGoogleDoc(EVENTS_DOC_ID, '(Events KB temporarily unavailable.)'),
-    ]);
-    const memberKb = memberKbRes.status === 'fulfilled' ? memberKbRes.value : '(Member Support KB temporarily unavailable.)';
-    const productsKb = productsRes.status === 'fulfilled' ? productsRes.value : '(Products & Pricing KB temporarily unavailable.)';
-    const eventsKb = eventsRes.status === 'fulfilled' ? eventsRes.value : '(Events KB temporarily unavailable.)';
-
-    // Step 7: Intent — either forced escalate (keyword), or Claude classifier
-    const intent: Intent = keywordEscalation
-      ? 'escalate'
-      : await classifyMemberIntent(messageBody, role);
-
-    // Step 8: Role-gated billing auto-escalation
+    // Step 6: Role-gated billing pre-check (also cheap — pure regex)
     const billingLikely = /\b(bill|charge|refund|payment|invoice|subscription|plan|upgrade|downgrade)\b/i.test(messageBody);
-    const finalIntent: Intent = (roleBlocksBilling(role) && billingLikely) ? 'escalate' : intent;
+    const forcedEscalation = keywordEscalation || (roleBlocksBilling(role) && billingLikely);
 
-    // Step 9: Generate reply based on intent
+    // Step 7: Intent + KB fetch
+    // When forcedEscalation is true the reply is hardcoded — skip KB fetches (saves ~200-400ms)
+    // and skip the Claude classifier call. Otherwise fetch KBs in parallel WITH the classifier.
+    let intent: Intent;
+    let memberKb = '(Member Support KB temporarily unavailable.)';
+    let productsKb = '(Products & Pricing KB temporarily unavailable.)';
+    let eventsKb = '(Events KB temporarily unavailable.)';
+
+    if (forcedEscalation) {
+      intent = 'escalate';
+    } else {
+      const [intentResult, memberKbRes, productsRes, eventsRes] = await Promise.allSettled([
+        classifyMemberIntent(messageBody, role),
+        fetchGoogleDoc(MEMBER_SUPPORT_DOC_ID, memberKb),
+        fetchGoogleDoc(PRODUCTS_PRICING_DOC_ID, productsKb),
+        fetchGoogleDoc(EVENTS_DOC_ID, eventsKb),
+      ]);
+      intent = intentResult.status === 'fulfilled' ? intentResult.value : 'support';
+      if (memberKbRes.status === 'fulfilled') memberKb = memberKbRes.value;
+      if (productsRes.status === 'fulfilled') productsKb = productsRes.value;
+      if (eventsRes.status === 'fulfilled') eventsKb = eventsRes.value;
+    }
+
+    const finalIntent: Intent = intent;
+
+    // Step 8: Generate reply based on intent
     let replyText = '';
     let modelUsed = '';
     let handledAsEscalation = false;
