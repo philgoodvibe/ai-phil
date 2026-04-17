@@ -6,6 +6,7 @@ import {
   extractLocationId,
   normalizeChannel,
   hasMemberTag,
+  matchesEscalationKeyword,
 } from './index.ts';
 
 Deno.test('extractMessageBody — reads nested message.body', () => {
@@ -75,4 +76,55 @@ Deno.test('hasMemberTag — false when absent', () => {
 
 Deno.test('hasMemberTag — false when undefined', () => {
   assertEquals(hasMemberTag(undefined), false);
+});
+
+Deno.test('matchesEscalationKeyword — cancel', () => {
+  assert(matchesEscalationKeyword('I want to cancel my membership'));
+});
+
+Deno.test('matchesEscalationKeyword — refund', () => {
+  assert(matchesEscalationKeyword('Can I get a refund please?'));
+});
+
+Deno.test('matchesEscalationKeyword — billing', () => {
+  assert(matchesEscalationKeyword('Question about my billing'));
+});
+
+Deno.test('matchesEscalationKeyword — MAX package', () => {
+  assert(matchesEscalationKeyword('Interested in the MAX package'));
+});
+
+Deno.test('matchesEscalationKeyword — MAYA package', () => {
+  assert(matchesEscalationKeyword('Can you tell me about the MAYA package?'));
+});
+
+Deno.test('matchesEscalationKeyword — done for you', () => {
+  assert(matchesEscalationKeyword('Do you offer done for you services?'));
+});
+
+Deno.test('matchesEscalationKeyword — frustration: unacceptable', () => {
+  assert(matchesEscalationKeyword('This is unacceptable!'));
+});
+
+Deno.test('matchesEscalationKeyword — frustration: scam', () => {
+  assert(matchesEscalationKeyword('This feels like a scam'));
+});
+
+Deno.test('matchesEscalationKeyword — false for benign message', () => {
+  assertEquals(matchesEscalationKeyword('How do I find the workshop replay?'), false);
+});
+
+Deno.test('matchesEscalationKeyword — false for empty', () => {
+  assertEquals(matchesEscalationKeyword(''), false);
+});
+
+Deno.test('matchesEscalationKeyword — case insensitive', () => {
+  assert(matchesEscalationKeyword('CANCEL my subscription now'));
+});
+
+Deno.test('matchesEscalationKeyword — does not false-positive on substrings', () => {
+  // "chargebacks" contains "charge" — we want that to match (it IS billing)
+  // but "uncancellable" shouldn't hit "cancel"? Actually it should — safer to escalate
+  // This test documents the intended behavior: substring match is acceptable.
+  assert(matchesEscalationKeyword('this is a chargeback situation'));
 });

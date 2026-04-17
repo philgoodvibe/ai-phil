@@ -137,6 +137,30 @@ export function hasMemberTag(tags: string[] | undefined): boolean {
   return tags.some(t => t.includes(MEMBER_TAG_SUBSTR));
 }
 
+// ---------------------------------------------------------------------------
+// Escalation keyword pre-check (no Claude call — fast path)
+// ---------------------------------------------------------------------------
+const ESCALATION_KEYWORDS: readonly string[] = [
+  // Cancellation / exit
+  'cancel', 'cancellation', 'leaving', 'quit',
+  // Billing / money
+  'refund', 'billing', 'charge', 'payment', 'invoice',
+  // Legal / disputes
+  'dispute', 'contract', 'legal', 'lawyer', 'lawsuit',
+  // Product escalation (agency-done-for-you inquiries go to humans)
+  'max package', 'maya package', 'atom package', 'done for you', 'full service',
+  // Blocked access (when AI can't self-serve)
+  'locked out',
+  // Frustration signals
+  'unacceptable', 'ridiculous', 'scam', 'waste of money',
+];
+
+export function matchesEscalationKeyword(message: string): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return ESCALATION_KEYWORDS.some(kw => lower.includes(kw));
+}
+
 // Stub handler — replaced in Task 10
 Deno.serve(async (_req: Request) => {
   return new Response('ghl-member-agent scaffold', { status: 200 });
