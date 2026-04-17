@@ -182,7 +182,8 @@ Deno.test('VOCABULARY_BLOCK teaches canonical MAX + MAYA expansions + acronym ru
 
 Deno.test('AGENCY_BOUNDARIES_BLOCK contains the no-agency rule', () => {
   assert(AGENCY_BOUNDARIES_BLOCK.includes('not an agency'));
-  assert(AGENCY_BOUNDARIES_BLOCK.includes('never offer to audit') || AGENCY_BOUNDARIES_BLOCK.toLowerCase().includes('audit'));
+  assert(AGENCY_BOUNDARIES_BLOCK.includes('Never offer to'));
+  assert(AGENCY_BOUNDARIES_BLOCK.toLowerCase().includes('audit'));
   assert(AGENCY_BOUNDARIES_BLOCK.includes("Phil's time"));
   assert(AGENCY_BOUNDARIES_BLOCK.includes('weekly call'));
 });
@@ -200,15 +201,26 @@ Deno.test('buildSystemPrompt includes AGENCY_BOUNDARIES_BLOCK for every context'
 // ---------------------------------------------------------------------------
 
 Deno.test('detectMemberClaim flags insider language', () => {
-  assert(detectMemberClaim('I have questions about my Google Ads campaign through the program'));
-  assert(detectMemberClaim('Hey Phil, I saw your last workshop and wanted to follow up'));
+  // Positive cases — sender writes as if already a member
+  assert(detectMemberClaim('I have questions about my Google Ads campaign in the program'));
+  assert(detectMemberClaim('Hey Phil, in last week\'s workshop you mentioned...'));
   assert(detectMemberClaim('Can I get access to the member portal again?'));
-  assert(detectMemberClaim('I paused my ads and wanted your advice'));
-  assert(detectMemberClaim('As a member, what should I do about this?'));
+  assert(detectMemberClaim('My membership stopped renewing, can you check?'));
+  assert(detectMemberClaim("I'm in the program and wanted to ask about MAYA"));
+  assert(detectMemberClaim('As an existing member, what should I do about this?'));
+  assert(detectMemberClaim('Since I joined the mastermind, my quote rate has improved'));
 });
 
 Deno.test('detectMemberClaim ignores new-prospect language', () => {
+  // Negative cases — must NOT flag legitimate prospect inquiries
   assert(!detectMemberClaim('Saw your ad, can you tell me about the mastermind?'));
   assert(!detectMemberClaim('What is the price of your program?'));
+  assert(!detectMemberClaim('I want to learn more about what you do'));
+  assert(!detectMemberClaim('I need help with my ads'));
+  assert(!detectMemberClaim("I'm interested in your workshop on Google Ads"));
+  assert(!detectMemberClaim('I run my own agency and want to grow my book'));
+  assert(!detectMemberClaim('My campaigns are underperforming, is this something you help with?'));
+  assert(!detectMemberClaim('Can you walk me through the program?'));
+  assert(!detectMemberClaim('I missed your last call on YouTube, what did you cover?'));
   assert(!detectMemberClaim('hello test'));
 });

@@ -193,14 +193,19 @@ function escapeRegex(s: string): string {
 // "have access to the member portal") is expensive. Bar is deliberately low.
 
 const MEMBER_CLAIM_PATTERNS: readonly RegExp[] = [
-  /\bmy\s+(?:google\s+ads?|campaigns?|ads?|account|team|book|agency)\b/i,
+  // Membership artifacts (unambiguous — only members have these)
   /\bmember\s+(?:portal|resources?|area|login|dashboard)\b/i,
-  /\b(?:in|through|part\s+of)\s+the\s+(?:program|mastermind|workshop|weekly\s+call|cohort)\b/i,
-  /\bmy\s+(?:membership|subscription|login|access)\b/i,
-  /\bas\s+(?:a\s+)?member\b/i,
-  /\bi\s+(?:joined|signed\s+up|enrolled|paid)\b/i,
-  /\b(?:last|previous|recent)\s+(?:workshop|call|session|training)\b/i,
+  /\bmy\s+(?:membership|subscription)\b/i,
+  /\b(?:my|the)\s+(?:member\s+)?login\s+(?:link|token|isn'?t|doesn'?t|stopped|expired)/i,
+  // Program-scoped first-person references (requires scope anchor to avoid prospect false-positives)
+  /\bi(?:'m|\s+am)?\s+(?:in|inside|part\s+of)\s+the\s+(?:program|mastermind|cohort)\b/i,
+  /\b(?:since|when|after)\s+i\s+(?:joined|signed\s+up|enrolled|started)\s+(?:the\s+)?(?:program|mastermind|cohort|aiai)\b/i,
+  /\bas\s+(?:a|an\s+existing)\s+member\b/i,
+  // Insider references to Phil personally (prospects say "you/your team", members say "Phil" or "Phillip")
   /\bhey\s+(?:phil|phillip)\b/i,
+  /\b(?:in|at|on|during)\s+(?:last|this\s+past|this)\s+(?:week'?s?|month'?s?)\s+(?:workshop|call|session|training)\b/i,
+  // Member-specific asset references
+  /\bmy\s+(?:google\s+ads?|maya|max|atom)\b(?:\s+\w+){0,3}\s+(?:in|through|inside)\s+the\s+(?:program|mastermind)\b/i,
 ];
 
 export function detectMemberClaim(text: string): boolean {
