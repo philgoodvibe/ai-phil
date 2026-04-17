@@ -364,8 +364,14 @@ async function clusterObjections(
   // Batch of 10 passages per call to stay well inside context.
   const batchSize = 10;
   const raw: string[] = [];
+  const totalBatches = Math.ceil(passages.length / batchSize);
   for (let i = 0; i < passages.length; i += batchSize) {
     const batch = passages.slice(i, i + batchSize);
+    const batchIdx = Math.floor(i / batchSize);
+    const passageCount = batch.length;
+    console.log(
+      `[haiku-objection] batch ${batchIdx + 1}/${totalBatches} (${passageCount} passages) → sending...`,
+    );
     const user = batch
       .map(
         (p, idx) =>
@@ -379,6 +385,7 @@ async function clusterObjections(
     try {
       const txt = await callHaiku(apiKey, system, user);
       raw.push(txt);
+      console.log(`[haiku-objection] batch ${batchIdx + 1}/${totalBatches} ok`);
     } catch (err) {
       console.warn(`[warn] haiku objection batch ${i}: ${(err as Error).message}`);
     }
@@ -412,8 +419,14 @@ async function clusterPeerStudies(
 
   const batchSize = 10;
   const raw: string[] = [];
+  const totalBatches = Math.ceil(passages.length / batchSize);
   for (let i = 0; i < passages.length; i += batchSize) {
     const batch = passages.slice(i, i + batchSize);
+    const batchIdx = Math.floor(i / batchSize);
+    const passageCount = batch.length;
+    console.log(
+      `[haiku-peer-study] batch ${batchIdx + 1}/${totalBatches} (${passageCount} passages) → sending...`,
+    );
     const user = batch.map((p, idx) => `#${i + idx + 1}\n${p}`).join("\n\n");
     const system =
       "You extract peer case-study fragments from Phillip's sales-call utterances. " +
@@ -422,6 +435,7 @@ async function clusterPeerStudies(
     try {
       const txt = await callHaiku(apiKey, system, user);
       raw.push(txt);
+      console.log(`[haiku-peer-study] batch ${batchIdx + 1}/${totalBatches} ok`);
     } catch (err) {
       console.warn(`[warn] haiku peer batch ${i}: ${(err as Error).message}`);
     }
