@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { AGENCY_BOUNDARIES_BLOCK } from '../_shared/salesVoice.ts';
 
 // ---------------------------------------------------------------------------
 // Constants (non-secret — safe to hardcode)
@@ -625,7 +626,7 @@ const SHARED_RULES = `RULES:
 - SMS: plain text, under 480 characters. Email: short paragraphs, 3-4 sentences each.
 - Do NOT use markdown formatting (no **bold**, no *italics*, no # headers) — SMS renders raw asterisks.`;
 
-function memberSupportPrompt(
+export function memberSupportPrompt(
   intent: Intent,
   memberKb: string,
   productsKb: string,
@@ -675,7 +676,11 @@ ${eventsKb}
 CONVERSATION HISTORY (oldest to newest):
 ${historyStr}
 
-Respond to the member's latest message. Use "Hi ${firstName || 'there'}". Channel: ${channel}. Keep it grounded in the KB — if the answer isn't there, say so and offer to flag it.`;
+Respond to the member's latest message. Use "Hi ${firstName || 'there'}". Channel: ${channel}. Keep it grounded in the KB — if the answer isn't there, say so and offer to flag it.
+
+---
+
+${AGENCY_BOUNDARIES_BLOCK}`;
 }
 
 // Hardcoded coaching redirect — no Claude call
