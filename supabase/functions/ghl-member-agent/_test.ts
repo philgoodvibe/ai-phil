@@ -9,6 +9,8 @@ import {
   matchesEscalationKeyword,
   readAgencyRole,
   roleBlocksBilling,
+  parseIntent,
+  formatHistory,
 } from './index.ts';
 
 Deno.test('extractMessageBody — reads nested message.body', () => {
@@ -174,4 +176,64 @@ Deno.test('roleBlocksBilling — team_member blocked', () => {
 
 Deno.test('roleBlocksBilling — unknown blocked (most restrictive default)', () => {
   assertEquals(roleBlocksBilling('unknown'), true);
+});
+
+Deno.test('parseIntent — valid onboarding', () => {
+  assertEquals(parseIntent('onboarding'), 'onboarding');
+});
+
+Deno.test('parseIntent — valid content', () => {
+  assertEquals(parseIntent('content'), 'content');
+});
+
+Deno.test('parseIntent — valid event', () => {
+  assertEquals(parseIntent('event'), 'event');
+});
+
+Deno.test('parseIntent — valid coaching', () => {
+  assertEquals(parseIntent('coaching'), 'coaching');
+});
+
+Deno.test('parseIntent — valid support', () => {
+  assertEquals(parseIntent('support'), 'support');
+});
+
+Deno.test('parseIntent — valid escalate', () => {
+  assertEquals(parseIntent('escalate'), 'escalate');
+});
+
+Deno.test('parseIntent — strips punctuation', () => {
+  assertEquals(parseIntent('support.'), 'support');
+  assertEquals(parseIntent('  onboarding  '), 'onboarding');
+  assertEquals(parseIntent('"event"'), 'event');
+});
+
+Deno.test('parseIntent — case insensitive', () => {
+  assertEquals(parseIntent('SUPPORT'), 'support');
+  assertEquals(parseIntent('Coaching'), 'coaching');
+});
+
+Deno.test('parseIntent — unknown defaults to support', () => {
+  assertEquals(parseIntent('garbage'), 'support');
+  assertEquals(parseIntent(''), 'support');
+});
+
+Deno.test('formatHistory — empty returns marker', () => {
+  assertEquals(formatHistory([]), '(no prior messages)');
+});
+
+Deno.test('formatHistory — formats MEMBER/AI', () => {
+  const out = formatHistory([
+    { direction: 'inbound', body: 'hi' },
+    { direction: 'outbound', body: 'hello' },
+  ]);
+  assertEquals(out, 'MEMBER: hi\nAI: hello');
+});
+
+Deno.test('formatHistory — skips empty bodies', () => {
+  const out = formatHistory([
+    { direction: 'inbound', body: '' },
+    { direction: 'outbound', body: 'only this' },
+  ]);
+  assertEquals(out, 'AI: only this');
 });

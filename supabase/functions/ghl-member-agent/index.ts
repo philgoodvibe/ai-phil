@@ -516,6 +516,62 @@ async function callClaude(
   return text.trim();
 }
 
+// ---------------------------------------------------------------------------
+// Intent classifier
+// ---------------------------------------------------------------------------
+const VALID_INTENTS: readonly Intent[] = [
+  'onboarding', 'content', 'event', 'coaching', 'support', 'escalate',
+];
+
+export function parseIntent(raw: string): Intent {
+  const cleaned = raw.toLowerCase().replace(/[^a-z]/g, '');
+  if ((VALID_INTENTS as readonly string[]).includes(cleaned)) {
+    return cleaned as Intent;
+  }
+  // Per design: ambiguous defaults to 'support' (answer it) rather than
+  // 'escalate' (route to human). Keyword pre-check handles true escalations.
+  return 'support';
+}
+
+async function classifyMemberIntent(messageBody: string, role: AgencyRole): Promise<Intent> {
+  const system = 'You are a message router for a member support inbox. Reply with exactly one word only: onboarding, content, event, coaching, support, or escalate. No punctuation, no explanation.';
+  const user = `Classify this inbound message from an active member.
+
+Member role: ${role}
+Message: "${messageBody}"
+
+onboarding = login, Google Workspace setup, mastery.aiaimastermind.com access, password reset, getting started
+content = workshop replays (IMM/SCMM/ATOM), module navigation, portal, where to find recordings
+event = event links, times, schedules, replay availability for a specific event
+coaching = strategy or advice question (e.g., "should I run X ads?", "how do I price this?", "what offer should I build?")
+support = logistical question, weekly call schedule, benefits overview, DFY Setup vs DFY Package distinction, identity/greeting
+escalate = clearly upset beyond keyword matches, account-specific problem requiring human judgment, or looping without resolution
+
+Reply with one word:`;
+
+  try {
+    const raw = await callClaude('claude-haiku-4-5-20251001', 10, system, user);
+    return parseIntent(raw);
+  } catch (err) {
+    console.error('[classify] threw:', err);
+    return 'support';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// History formatter
+// ---------------------------------------------------------------------------
+export function formatHistory(history: GhlMessage[]): string {
+  if (!history.length) return '(no prior messages)';
+  return history
+    .filter(m => typeof m.body === 'string' && m.body.trim().length > 0)
+    .map(m => {
+      const speaker = m.direction === 'outbound' ? 'AI' : 'MEMBER';
+      return `${speaker}: ${m.body}`;
+    })
+    .join('\n');
+}
+
 // Stub handler — replaced in Task 11
 Deno.serve(async (_req: Request) => {
   return new Response('ghl-member-agent scaffold', { status: 200 });
