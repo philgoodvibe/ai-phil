@@ -464,6 +464,58 @@ async function addGhlContactNote(contactId: string, noteBody: string): Promise<b
   }
 }
 
+// ---------------------------------------------------------------------------
+// Google Doc fetch (public docs)
+// ---------------------------------------------------------------------------
+async function fetchGoogleDoc(docId: string, fallback: string): Promise<string> {
+  try {
+    const res = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`);
+    if (!res.ok) {
+      console.error(`[gdoc] fetch ${docId} ${res.status}`);
+      return fallback;
+    }
+    const text = await res.text();
+    return text.trim() || fallback;
+  } catch (err) {
+    console.error(`[gdoc] fetch ${docId} threw:`, err);
+    return fallback;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Claude Anthropic API
+// ---------------------------------------------------------------------------
+async function callClaude(
+  model: string,
+  maxTokens: number,
+  system: string,
+  userMessage: string
+): Promise<string> {
+  const key = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!key) throw new Error('ANTHROPIC_API_KEY missing');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Claude API ${res.status}: ${await res.text()}`);
+  }
+  const data = await res.json() as { content?: Array<{ text?: string }> };
+  const text = data.content?.[0]?.text;
+  if (!text) throw new Error('Claude returned empty content');
+  return text.trim();
+}
+
 // Stub handler — replaced in Task 11
 Deno.serve(async (_req: Request) => {
   return new Response('ghl-member-agent scaffold', { status: 200 });
