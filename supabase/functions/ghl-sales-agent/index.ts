@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { buildSystemPrompt, containsBannedWord, type VoiceContext } from '../_shared/salesVoice.ts';
+import { buildSystemPrompt, containsBannedWord, detectMemberClaim, type VoiceContext } from '../_shared/salesVoice.ts';
 import { fetchRapport, extractRapport, storeRapport, mergeRapportFacts } from '../_shared/rapport.ts';
 import { fetchCachedGoogleDoc } from '../_shared/kbCache.ts';
 
@@ -14,6 +14,12 @@ const CHECKOUT_URL = 'https://aiaimastermind.com';
 const MEMBER_TAG = '⭕️aiai-member-active✅';
 const GHL_API_BASE = 'https://services.leadconnectorhq.com';
 const GHL_API_VERSION = '2021-07-28';
+
+const UNKNOWN_MEMBER_REPLY = `Hi there,
+
+It sounds like you may be asking as a member of AiAi Mastermind, but I don't see this email in our member records. I've flagged this for a human teammate to review — they'll verify and get back to you.
+
+If you meant to write from a different email, please reply from the address you're registered with and we'll route you right away.`;
 
 // GHL numeric -> string message types (from ghl-message-receiver)
 const GHL_MESSAGE_TYPES: Record<number, string> = {
@@ -546,8 +552,10 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // Outer-scope fallback so the fatal catch block can reference channel even if
-  // channel resolution hasn't run yet (e.g. contact fetch threw before resolveChannel).
+  // Outer-scope so the fatal-catch block can reference channel.
+  // resolveChannel is pure and cannot throw; this stays 'sms' only if the
+  // try-block throws before resolveChannel runs (unreachable in current
+  // code given Promise.allSettled above — kept for defense-in-depth).
   let channel: Channel = 'sms';
 
   try {
@@ -596,6 +604,62 @@ Deno.serve(async (req: Request) => {
     const firstName = safeContact.firstName ?? '';
     const lastName = safeContact.lastName ?? '';
     const phone = safeContact.phone ?? '';
+
+    // Member-claim gate: non-tagged contact writing like a member → polite
+    // boilerplate + flag to human, don't auto-validate. Added 2026-04-17 after
+    // Sharon Godfrey unmerged-contact incident.
+    if (detectMemberClaim(messageBody)) {
+      console.log(`[member-claim] non-tagged contact ${contactId} wrote member-sounding message, gating`);
+
+      const sendOk = await sendGhlReply(contactId, UNKNOWN_MEMBER_REPLY, channel);
+
+      await writeAgentSignal({
+        source_agent: 'ghl-sales-agent',
+        target_agent: 'richie-cc2',
+        signal_type: 'unknown-member-claim',
+        status: sendOk ? 'delivered' : 'failed',
+        channel: 'open',
+        priority: 2,
+        payload: {
+          contact_id: contactId,
+          conversation_id: conversationId,
+          channel,
+          message_preview: messageBody.substring(0, 300),
+          contact_email: safeContact.email,
+          contact_phone: safeContact.phone,
+        },
+      });
+
+      const contactName = `${firstName} ${lastName}`.trim();
+      await postGoogleChatAlert(`AI Phil unknown-member claim
+Contact: ${contactName || contactId} (${safeContact.email || 'no email'} / ${phone || 'no phone'})
+Channel: ${channel}
+Message: ${messageBody.substring(0, 500)}
+Conversation: ${conversationId}
+
+Auto-reply sent: ${sendOk ? 'yes' : 'FAILED'}`);
+
+      try {
+        const { error } = await supabase.schema('ops').from('open_tickets').insert({
+          sync_source: 'ghl-sales-agent',
+          channel: `ghl-${channel}`,
+          contact_name: contactName || null,
+          contact_phone: phone || null,
+          raw_message_snippet: messageBody.substring(0, 500),
+          category: 'unknown-member-claim',
+          conversation_id: conversationId,
+          status: 'Open',
+        });
+        if (error) console.error('[open_tickets] unknown-member-claim insert error:', error.message);
+      } catch (err) {
+        console.error('[open_tickets] unknown-member-claim insert threw:', err);
+      }
+
+      return new Response(
+        JSON.stringify({ ok: true, gated: 'unknown-member-claim', sent: sendOk }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     // History from parallel fetch (historyResult already settled)
     let history: GhlMessage[] = [];
