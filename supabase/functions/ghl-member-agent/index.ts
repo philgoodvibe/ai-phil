@@ -648,7 +648,251 @@ function escalationAcknowledgment(firstName: string): string {
   return `Hi ${firstName || 'there'}, I want to make sure you get the right help on this. I've flagged your message for our team and someone will reach out shortly.`;
 }
 
-// Stub handler — replaced in Task 11
-Deno.serve(async (_req: Request) => {
-  return new Response('ghl-member-agent scaffold', { status: 200 });
+// ---------------------------------------------------------------------------
+// Main handler
+// ---------------------------------------------------------------------------
+Deno.serve(async (req: Request) => {
+  if (req.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 });
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json() as Record<string, unknown>;
+  } catch (_err) {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Step 1: Validate location
+  const locationId = extractLocationId(body);
+  if (locationId !== GHL_LOCATION_ID) {
+    console.error(`[location] rejected ${locationId}`);
+    return new Response(
+      JSON.stringify({ error: 'Invalid location', received: locationId }),
+      { status: 403, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // Step 2: Extract message fields
+  const contactId = extractContactId(body);
+  let conversationId = extractConversationId(body);
+  const messageBody = extractMessageBody(body);
+  const rawMessageType = extractMessageType(body);
+  let channel: Channel = rawMessageType ? normalizeChannel(rawMessageType) : 'sms';
+
+  if (!contactId || !messageBody) {
+    console.error('[extract] missing required fields', { contactId, conversationId, hasMessage: !!messageBody });
+    return new Response(
+      JSON.stringify({ error: 'Missing required fields', contactId, conversationId, hasMessage: !!messageBody }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // Resolve conversationId if absent
+  if (!conversationId && contactId) {
+    const lookup = await lookupConversation(contactId);
+    if (!lookup) {
+      console.error('[extract] could not resolve conversationId for contact', contactId);
+      return new Response(
+        JSON.stringify({ error: 'Could not resolve conversationId', contactId }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    conversationId = lookup.id;
+    if (!rawMessageType && lookup.suggestedChannel && lookup.suggestedChannel !== 'phone') {
+      channel = lookup.suggestedChannel;
+    }
+  }
+
+  try {
+    // Step 3: Fetch contact + history in parallel
+    const [contactResult, historyResult] = await Promise.allSettled([
+      fetchGhlContact(contactId),
+      fetchGhlConversationHistory(conversationId!),
+    ]);
+
+    const contact = contactResult.status === 'fulfilled' ? contactResult.value : null;
+    const tags = contact?.tags ?? [];
+    const firstName = contact?.firstName ?? '';
+    const lastName = contact?.lastName ?? '';
+    const phone = contact?.phone ?? '';
+
+    // Step 4: Safety failsafe — this function is for members only.
+    // If the member tag is missing (workflow misconfiguration), drop the request.
+    if (!hasMemberTag(tags)) {
+      console.error('[safety] non-member hit member endpoint — dropping', { contactId });
+      await writeAgentSignal({
+        source_agent: 'ghl-member-agent',
+        target_agent: 'richie-cc2',
+        signal_type: 'non-member-at-member-endpoint',
+        status: 'dropped',
+        channel: 'open',
+        priority: 2,
+        payload: { contact_id: contactId, tags },
+      });
+      return new Response(
+        JSON.stringify({ ok: true, skipped: 'non-member' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Read agency role
+    const role: AgencyRole = readAgencyRole(contact?.customFields);
+
+    // History with local fallback
+    let history: GhlMessage[] = [];
+    if (historyResult.status === 'fulfilled') history = historyResult.value;
+    if (!history.length) {
+      console.log('[history] GHL returned empty — falling back to local memory');
+      history = await fetchLocalHistory(contactId);
+    }
+    const historyStr = formatHistory(history);
+
+    // Step 5: Escalation keyword pre-check — fast path, no Claude
+    const keywordEscalation = matchesEscalationKeyword(messageBody);
+
+    // Step 6: Fetch all KB docs in parallel
+    const [memberKbRes, productsRes, eventsRes] = await Promise.allSettled([
+      fetchGoogleDoc(MEMBER_SUPPORT_DOC_ID, '(Member Support KB temporarily unavailable.)'),
+      fetchGoogleDoc(PRODUCTS_PRICING_DOC_ID, '(Products & Pricing KB temporarily unavailable.)'),
+      fetchGoogleDoc(EVENTS_DOC_ID, '(Events KB temporarily unavailable.)'),
+    ]);
+    const memberKb = memberKbRes.status === 'fulfilled' ? memberKbRes.value : '(Member Support KB temporarily unavailable.)';
+    const productsKb = productsRes.status === 'fulfilled' ? productsRes.value : '(Products & Pricing KB temporarily unavailable.)';
+    const eventsKb = eventsRes.status === 'fulfilled' ? eventsRes.value : '(Events KB temporarily unavailable.)';
+
+    // Step 7: Intent — either forced escalate (keyword), or Claude classifier
+    const intent: Intent = keywordEscalation
+      ? 'escalate'
+      : await classifyMemberIntent(messageBody, role);
+
+    // Step 8: Role-gated billing auto-escalation
+    const billingLikely = /\b(bill|charge|refund|payment|invoice|subscription|plan|upgrade|downgrade)\b/i.test(messageBody);
+    const finalIntent: Intent = (roleBlocksBilling(role) && billingLikely) ? 'escalate' : intent;
+
+    // Step 9: Generate reply based on intent
+    let replyText = '';
+    let modelUsed = '';
+    let handledAsEscalation = false;
+
+    if (finalIntent === 'escalate') {
+      replyText = escalationAcknowledgment(firstName);
+      modelUsed = 'hardcoded-escalation';
+      handledAsEscalation = true;
+    } else if (finalIntent === 'coaching') {
+      replyText = coachingRedirect(firstName);
+      modelUsed = 'hardcoded-coaching';
+    } else {
+      modelUsed = 'claude-haiku-4-5-20251001';
+      try {
+        replyText = await callClaude(
+          modelUsed,
+          300,
+          memberSupportPrompt(finalIntent, memberKb, productsKb, eventsKb, firstName, role, channel, historyStr),
+          messageBody
+        );
+      } catch (err) {
+        console.error('[generate] Claude failed:', err);
+        replyText = `Hi ${firstName || 'there'}, I hit a snag pulling that up. I've flagged this for our team — someone will follow up shortly.`;
+        handledAsEscalation = true;
+      }
+    }
+
+    // Sanitize for SMS
+    if (channel === 'sms') {
+      replyText = stripMarkdown(replyText);
+      if (replyText.length > 480) replyText = replyText.substring(0, 477) + '...';
+    }
+
+    // Step 10: Send reply
+    const sendOk = await sendGhlReply(contactId, replyText, channel);
+
+    // Step 11: Log conversation memory (both rows) with member_support intent
+    try {
+      const { error } = await supabase.schema('ops').from('ai_inbox_conversation_memory').insert([
+        {
+          contact_id: contactId,
+          conversation_id: conversationId,
+          channel,
+          role: 'user',
+          message: messageBody,
+          intent: 'member_support',
+          stage: finalIntent,
+        },
+        {
+          contact_id: contactId,
+          conversation_id: conversationId,
+          channel,
+          role: 'assistant',
+          message: replyText,
+          intent: 'member_support',
+          stage: finalIntent,
+        },
+      ]);
+      if (error) console.error('[memory] insert error:', error.message);
+    } catch (err) {
+      console.error('[memory] insert threw:', err);
+    }
+
+    // Step 12: Escalation actions (tag + note + Google Chat)
+    if (handledAsEscalation) {
+      const contactName = `${firstName} ${lastName}`.trim();
+      const preview = messageBody.substring(0, 200);
+      const noteBody = `👷 Member escalation — ${new Date().toISOString()}: ${preview}. Channel: ${channel}. Agency role: ${role}.`;
+      const chatText = `🚨 Member needs human — ${contactName || contactId} (${role}) via ${channel}: ${preview}`;
+
+      await Promise.allSettled([
+        addGhlTag(contactId, ESCALATION_TAG),
+        addGhlContactNote(contactId, noteBody),
+        postGoogleChatAlert(chatText),
+      ]);
+    }
+
+    // Step 13: Audit signal
+    await writeAgentSignal({
+      source_agent: 'ghl-member-agent',
+      target_agent: 'richie-cc2',
+      signal_type: sendOk ? 'ai-member-reply-sent' : 'ai-member-error',
+      status: sendOk ? 'delivered' : 'failed',
+      channel: 'open',
+      priority: handledAsEscalation ? 2 : 4,
+      payload: {
+        contact_id: contactId,
+        conversation_id: conversationId,
+        channel,
+        intent: finalIntent,
+        keyword_escalation: keywordEscalation,
+        role,
+        model: modelUsed,
+        message_preview: messageBody.substring(0, 200),
+        reply_preview: replyText.substring(0, 200),
+        send_ok: sendOk,
+        phone_redacted: phone ? `***${phone.slice(-4)}` : null,
+      },
+    });
+
+    return new Response(
+      JSON.stringify({ ok: true, intent: finalIntent, escalated: handledAsEscalation, sent: sendOk }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    console.error('[fatal] handler threw:', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    await writeAgentSignal({
+      source_agent: 'ghl-member-agent',
+      target_agent: 'richie-cc2',
+      signal_type: 'ai-member-error',
+      status: 'failed',
+      channel: 'open',
+      priority: 1,
+      payload: { contact_id: contactId, conversation_id: conversationId, channel, error: msg },
+    });
+    return new Response(
+      JSON.stringify({ error: 'Internal error', detail: msg }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
 });
