@@ -634,7 +634,7 @@ const SHARED_RULES = `RULES:
 - Never discuss billing, cancellations, refunds, or legal matters — these are escalations.
 - Never promise features, timelines, or commitments not in the knowledge base.
 - Always use "Hi [Name]", never "Hey".
-- SMS: plain text, under 480 characters. Email: short paragraphs, 3-4 sentences each.
+- SMS: plain text, under 472 characters (8 chars reserved for -Ai Phil sign-off). Email: short paragraphs, 3-4 sentences each.
 - Do NOT use markdown formatting (no **bold**, no *italics*, no # headers) — SMS renders raw asterisks.`;
 
 export function memberSupportPrompt(
@@ -887,15 +887,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Sanitize for SMS
+    // Sanitize for SMS and append signature in one pass so the total stays ≤ 480 chars
     if (channel === 'sms') {
+      const SMS_SIGNATURE = '\n-Ai Phil';
+      const SMS_LIMIT = 480;
+      const maxBody = SMS_LIMIT - SMS_SIGNATURE.length; // 472
       replyText = stripMarkdown(replyText);
-      if (replyText.length > 480) replyText = replyText.substring(0, 477) + '...';
-    }
-
-    // Append SMS signature for member-facing replies
-    if (channel === 'sms') {
-      replyText = replyText + '\n-Ai Phil';
+      if (replyText.length > maxBody) replyText = replyText.substring(0, maxBody - 3) + '...';
+      replyText = replyText + SMS_SIGNATURE;
     }
 
     // Step 10: Send reply
