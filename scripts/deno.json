@@ -1,0 +1,10 @@
+{
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "test:distill": "deno test --allow-read --allow-write --allow-env --allow-net distill-fathom-voice.test.ts",
+    "distill": "deno run --allow-read --allow-write --allow-env --allow-net distill-fathom-voice.ts"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1.0.0"
+  }
+}
