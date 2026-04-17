@@ -150,6 +150,9 @@ Each row is a real past bug. Don't relearn these.
 | Working tree left dirty across sessions | Start every session with `git status`; end every session clean. Runtime dirs in `.gitignore` once. |
 | Sessions shipped but never pushed to origin | Push decision is explicit every close-out. |
 | "This is too simple to brainstorm" | The brainstorming skill is non-negotiable. Simple projects are where unexamined assumptions cause the most wasted work. |
+| pg_cron schedule in Pacific hours (Apr 17) | pg_cron on Supabase runs in **UTC**, not the project timezone. A cron `0 9-17 * * 1-5` fires 9am-5pm UTC = 2am-10am Pacific, not business hours. Always convert target local hours to UTC when writing cron schedules. For US Pacific business hours: `0 16-0 * * 1-5` (PDT) or `0 17-1 * * 1-5` (PST). |
+| MCP `contacts_remove-tags` is broken (Apr 17) | The `mcp__prod-ghl-mcp__contacts_remove-tags` tool returns 422 "tags must be an array" for any input (even valid ASCII). Use `contacts_update-contact` with `body_tags` to replace the full tag set instead (read current tags first, compute keep-set, write). `contacts_add-tags` works fine. See `memory/reference_ghl_mcp_gotchas.md`. |
+| Multi-file edge function deploys with `_shared/` imports | When deploying via Supabase MCP `deploy_edge_function`, include shared files with their relative paths as `name` (e.g. `"../_shared/salesVoice.ts"`). This is how ghl-sales-agent v10+ and ghl-sales-followup v1+ successfully deploy. The deploy layer places files at `source/index.ts` + `_shared/*.ts` siblings; `../_shared/x.ts` from `source/index.ts` resolves correctly. |
 
 ---
 
