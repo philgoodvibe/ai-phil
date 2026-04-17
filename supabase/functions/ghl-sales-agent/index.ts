@@ -1,5 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { buildSystemPrompt, containsBannedWord, type VoiceContext } from '../_shared/salesVoice.ts';
+import { fetchRapport, extractRapport, storeRapport, mergeRapportFacts } from '../_shared/rapport.ts';
+import { fetchCachedGoogleDoc } from '../_shared/kbCache.ts';
 
 // ---------------------------------------------------------------------------
 // Constants (non-secret — safe to hardcode)
@@ -333,24 +336,6 @@ async function sendGhlReply(
 }
 
 // ---------------------------------------------------------------------------
-// Google Doc fetch (public docs)
-// ---------------------------------------------------------------------------
-async function fetchGoogleDoc(docId: string, fallback: string): Promise<string> {
-  try {
-    const res = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`);
-    if (!res.ok) {
-      console.error(`[gdoc] fetch ${docId} ${res.status}`);
-      return fallback;
-    }
-    const text = await res.text();
-    return text.trim() || fallback;
-  } catch (err) {
-    console.error(`[gdoc] fetch ${docId} threw:`, err);
-    return fallback;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Claude Anthropic API
 // ---------------------------------------------------------------------------
 async function callClaude(
@@ -427,99 +412,6 @@ function formatHistory(history: GhlMessage[]): string {
       return `${speaker}: ${m.body}`;
     })
     .join('\n');
-}
-
-function salesSystemPrompt(
-  productsKb: string,
-  contact: GhlContact,
-  channel: Channel,
-  historyStr: string
-): string {
-  const firstName = contact.firstName ?? '';
-  const lastName = contact.lastName ?? '';
-  const companyName = contact.companyName ?? '';
-  const tags = (contact.tags ?? []).join(', ') || 'none';
-
-  return `You are Ai Phil — the AI sales assistant for AiAi Mastermind, trained on Phillip Ngo's methodology and voice.
-
-IDENTITY: You are an AI, not Phillip himself. If asked who you are, say: "I'm Ai Phil, the AI assistant for AiAi Mastermind." Never say "I'm Phillip Ngo" or claim to be a real person.
-
-VOICE: Direct. Warm. Real. Short sentences. Contractions always.
-NEVER use: em dashes, "Hey", "leverage", "synergy", "seamless", "robust", "comprehensive", "delve"
-ALWAYS use: "Hi [Name]", outcome-first, stories before stats, real insurance world examples.
-
-SALES METHODOLOGY:
-1. Ask before you pitch. Qualify first, always.
-2. Use their words back to them.
-3. Frame outcome before price.
-4. Give the checkout link directly when closing — don't hint.
-5. Handle objections with questions, not defenses.
-6. Maximum 2 sentences before asking a question.
-
-CHANNEL RULES:
-- SMS: keep under 160 characters per message. No long paragraphs. Single thought per message.
-- Email: short paragraphs, 3-4 sentences max each.
-
-CURRENT PRODUCTS & PRICING:
-${productsKb}
-
-CONTACT:
-Name: ${firstName} ${lastName}
-Company: ${companyName}
-Tags: ${tags}
-Channel: ${channel}
-
-CONVERSATION HISTORY (oldest to newest):
-${historyStr}
-
-Respond to their latest message. If this is their first message, start by asking what they want AI to help with: getting more leads, creating content, or running their operations. Do not pitch until you know their answer.`;
-}
-
-function eventSystemPrompt(
-  eventsKb: string,
-  contact: GhlContact,
-  channel: Channel,
-  historyStr: string
-): string {
-  const firstName = contact.firstName ?? '';
-  const tags = (contact.tags ?? []).join(', ') || 'none';
-
-  return `You are Ai Phil — the AI assistant for AiAi Mastermind, trained on Phillip Ngo's methodology.
-
-IDENTITY: You are an AI, not Phillip himself. Never claim to be Phillip Ngo or a real person.
-
-VOICE: Direct. Warm. Enthusiastic about events. Short sentences.
-NEVER: fabricate event details, invent dates, times, or links not listed below.
-ALWAYS: "Hi [Name]", use only the event details provided below.
-
-YOUR ROLE: Help prospects and members understand upcoming events, how to register, and how to access replays.
-
-EVENTS KNOWLEDGE:
-${eventsKb}
-
-CONTACT:
-Name: ${firstName}
-Tags: ${tags}
-Channel: ${channel}
-
-CONVERSATION HISTORY:
-${historyStr}
-
-Respond to their question about events. Only mention events listed in the events knowledge above. If no upcoming events are listed, say so honestly and invite them to check mastery.aiaimastermind.com for the latest schedule.`;
-}
-
-function supportSystemPrompt(productsKb: string, firstName: string, historyStr: string): string {
-  return `You are Ai Phil — the AI assistant for AiAi Mastermind, trained on Phillip Ngo's methodology.
-
-IDENTITY: You are an AI, not Phillip himself. If asked who you are, say: "I'm Ai Phil, the AI assistant for AiAi Mastermind." Never claim to be Phillip Ngo or a real person. You DO have access to the conversation history below — never tell the contact you can't see prior messages.
-
-Answer the question helpfully and briefly. Do not pitch the membership unless they directly ask about joining. Use "Hi ${firstName}", never "Hey". Be warm and direct.
-
-CONVERSATION HISTORY (oldest to newest):
-${historyStr}
-
-Products context (for reference only — don't pitch unless asked):
-${productsKb}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -670,8 +562,8 @@ Deno.serve(async (req: Request) => {
 
     // Step 5: Fetch KB docs in parallel (graceful fallback)
     const [productsRes, eventsRes] = await Promise.allSettled([
-      fetchGoogleDoc(PRODUCTS_PRICING_DOC_ID, '(Products & pricing knowledge base temporarily unavailable.)'),
-      fetchGoogleDoc(EVENTS_DOC_ID, '(Events knowledge base temporarily unavailable.)'),
+      fetchCachedGoogleDoc(supabase, PRODUCTS_PRICING_DOC_ID, '(Products & pricing knowledge base temporarily unavailable.)'),
+      fetchCachedGoogleDoc(supabase, EVENTS_DOC_ID, '(Events knowledge base temporarily unavailable.)'),
     ]);
     const productsKb = productsRes.status === 'fulfilled'
       ? productsRes.value
@@ -683,51 +575,28 @@ Deno.serve(async (req: Request) => {
     // Step 6: Classify intent
     const intent: Intent = await classifyIntent(messageBody, tags);
 
-    // Step 7: Generate reply
+    // Step 7: Generate reply — unified through _shared/salesVoice
     let replyText = '';
     let modelUsed = '';
+
+    // Fetch rapport before composing prompt
+    const rapport = await fetchRapport(supabase, contactId);
+
+    let voiceContext: VoiceContext;
+    if (intent === 'sales')        { voiceContext = 'sales-live'; modelUsed = 'claude-sonnet-4-6'; }
+    else if (intent === 'event')   { voiceContext = 'event';      modelUsed = 'claude-sonnet-4-6'; }
+    else if (intent === 'support') { voiceContext = 'support';    modelUsed = 'claude-haiku-4-5-20251001'; }
+    else                           { voiceContext = 'unknown';    modelUsed = 'claude-haiku-4-5-20251001'; }
+
+    const extras = `Products context:\n${productsKb}\n\nEvents context:\n${eventsKb}\n\nContact: ${firstName} ${lastName}, channel=${channel}`;
+    const systemPrompt = buildSystemPrompt(voiceContext, rapport, historyStr, extras);
+
     try {
-      if (intent === 'sales') {
-        modelUsed = 'claude-sonnet-4-6';
-        replyText = await callClaude(
-          modelUsed,
-          300,
-          salesSystemPrompt(productsKb, safeContact, channel, historyStr),
-          messageBody
-        );
-      } else if (intent === 'event') {
-        modelUsed = 'claude-sonnet-4-6';
-        replyText = await callClaude(
-          modelUsed,
-          300,
-          eventSystemPrompt(eventsKb, safeContact, channel, historyStr),
-          messageBody
-        );
-      } else if (intent === 'support') {
-        modelUsed = 'claude-haiku-4-5-20251001';
-        replyText = await callClaude(
-          modelUsed,
-          200,
-          supportSystemPrompt(productsKb, firstName || 'there', historyStr),
-          messageBody
-        );
-      } else {
-        // unknown intent — use Claude with a general Ai Phil intro prompt
-        modelUsed = 'claude-haiku-4-5-20251001';
-        const unknownPrompt = `You are Ai Phil — the AI assistant for AiAi Mastermind, trained on Phillip Ngo's methodology.
-IDENTITY: You are an AI, not Phillip himself. Introduce yourself as "Ai Phil, the AI assistant for AiAi Mastermind."
-Be warm, brief, and invite them to share what they need help with. Mention you can help with questions about the membership, upcoming events, or how AI can help their business.
-Use "Hi ${firstName || 'there'}", never "Hey". 2-3 sentences max.`;
-        try {
-          replyText = await callClaude(modelUsed, 100, unknownPrompt, messageBody);
-        } catch {
-          replyText = `Hi ${firstName || 'there'}, I'm Ai Phil — the AI assistant for AiAi Mastermind. I'm here to help with questions about the membership, events, or how AI can help your business. What's on your mind?`;
-        }
-      }
+      replyText = await callClaude(modelUsed, intent === 'support' ? 200 : 300, systemPrompt, messageBody);
     } catch (err) {
       console.error('[generate] Claude failed:', err);
-      replyText = `Hi ${firstName || 'there'}, I'm Ai Phil — the AI assistant for AiAi Mastermind. I'm here to help with questions about the membership, events, or how AI can help your business. What's on your mind?`;
-      modelUsed = modelUsed || 'fallback';
+      replyText = `Hi ${firstName || 'there'}, I'm Ai Phil, the AI assistant for AiAi Mastermind. I'm here to help with questions about the membership, events, or how AI can help your business. What's on your mind?`;
+      modelUsed = 'fallback';
     }
 
     // Strip markdown and enforce length cap for SMS
