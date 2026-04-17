@@ -3,6 +3,7 @@ import {
   AGENCY_BOUNDARIES_BLOCK,
   BANNED_WORDS,
   containsBannedWord,
+  detectMemberClaim,
   buildSystemPrompt,
   isVoiceContext,
   VOICE_CONTEXTS,
@@ -194,3 +195,20 @@ Deno.test('buildSystemPrompt includes AGENCY_BOUNDARIES_BLOCK for every context'
   }
 });
 
+// ---------------------------------------------------------------------------
+// Task 2 — detectMemberClaim tests
+// ---------------------------------------------------------------------------
+
+Deno.test('detectMemberClaim flags insider language', () => {
+  assert(detectMemberClaim('I have questions about my Google Ads campaign through the program'));
+  assert(detectMemberClaim('Hey Phil, I saw your last workshop and wanted to follow up'));
+  assert(detectMemberClaim('Can I get access to the member portal again?'));
+  assert(detectMemberClaim('I paused my ads and wanted your advice'));
+  assert(detectMemberClaim('As a member, what should I do about this?'));
+});
+
+Deno.test('detectMemberClaim ignores new-prospect language', () => {
+  assert(!detectMemberClaim('Saw your ad, can you tell me about the mastermind?'));
+  assert(!detectMemberClaim('What is the price of your program?'));
+  assert(!detectMemberClaim('hello test'));
+});

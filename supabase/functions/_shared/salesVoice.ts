@@ -184,6 +184,34 @@ function escapeRegex(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// detectMemberClaim — lenient heuristic for "sender talks like a member"
+// ---------------------------------------------------------------------------
+//
+// Used by ghl-sales-agent to gate non-tagged inbounds that sound like they
+// come from a member (different email address, unmerged contact, etc.).
+// False-flag to human is cheap; false-auto-validate (telling a prospect they
+// "have access to the member portal") is expensive. Bar is deliberately low.
+
+const MEMBER_CLAIM_PATTERNS: readonly RegExp[] = [
+  /\bmy\s+(?:google\s+ads?|campaigns?|ads?|account|team|book|agency)\b/i,
+  /\bmember\s+(?:portal|resources?|area|login|dashboard)\b/i,
+  /\b(?:in|through|part\s+of)\s+the\s+(?:program|mastermind|workshop|weekly\s+call|cohort)\b/i,
+  /\bmy\s+(?:membership|subscription|login|access)\b/i,
+  /\bas\s+(?:a\s+)?member\b/i,
+  /\bi\s+(?:joined|signed\s+up|enrolled|paid)\b/i,
+  /\b(?:last|previous|recent)\s+(?:workshop|call|session|training)\b/i,
+  /\bhey\s+(?:phil|phillip)\b/i,
+];
+
+export function detectMemberClaim(text: string): boolean {
+  if (!text || text.trim().length < 4) return false;
+  for (const re of MEMBER_CLAIM_PATTERNS) {
+    if (re.test(text)) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Prompt blocks — lifted from the voice doc
 // ---------------------------------------------------------------------------
 
