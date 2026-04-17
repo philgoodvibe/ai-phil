@@ -91,6 +91,68 @@ Per `80-processes/Agent-Coordination.md`:
 
 ---
 
+## ⚠️ SESSION CLOSE-OUT PROTOCOL — run every time, no exceptions
+
+Each numbered item below exists because it was once skipped and cost real hours or caused a production problem. Run in order.
+
+### 1. Code + git reconciliation
+- `git status` — working tree clean? Runtime dirs (`.claude/`, `supabase/.temp/`, `node_modules/`) should be gitignored, not untracked.
+- `git log origin/main..HEAD` — how many commits ahead? Decision at close-out is always explicit: either push, or write the reason in the session summary.
+- **Deployed-but-uncommitted check (critical):** for every Supabase edge function touched this session, run `get_edge_function` and diff against the local committed source. If they differ, the commit is stale. *(This is the bug that cost us v7→v9 of `ghl-sales-agent` shipping to prod without landing in git for days.)*
+- Commit messages are descriptive and end with `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`.
+
+### 2. Tests + typecheck
+- Full test suite green (`deno test` for edge functions, `npm run typecheck` for Next.js).
+- If a new edge function shipped: at least 3 HTTP smoke tests against the deployed URL (bad auth/location, missing fields, wrong method).
+- **End-to-end check, not just unit:** if a prompt-building function takes new parameters, verify the parameters actually flow through from the handler. Unit tests of `formatHistory()` don't catch that it's never called.
+
+### 3. Security (mandatory if schema touched, strongly recommended otherwise)
+- `get_advisors('security')` via Supabase MCP. Fix every ERROR before close; note every WARN in the session summary.
+- Grep touched SQL/source for hardcoded secrets: `eyJ` (JWT prefix), `sk_live`, `sk_test`, webhook URL literals.
+- RLS on every new public-schema table.
+
+### 4. Vault docs
+- `vault/60-content/ai-phil/_ROADMAP.md`: shipped item moved with date + summary; struck-through known-issue rows updated.
+- `vault/50-meetings/YYYY-MM-DD-<topic>.md`: session summary with a **"Pick up here"** block at the top (what's live / what's pending human / what's blocked / what's next).
+- `vault/70-decisions/DR-YYYYMMDD-*.md`: only if a real architectural decision was made.
+- **Ai Phil capability wiki** (`vault/60-content/ai-phil/AI-Phil-Brain.md` or companion): update if a new touchpoint/agent/tool shipped.
+- **Live-sync folder check:** new Google Docs are NOT in the KB auto-sync folder (Drive ID `1WvYoladPakRleEscONNFXVgHv3-hjbEE`) unless intentional.
+
+### 5. Persistent memory (across sessions)
+- Add or update relevant file in `~/.claude/projects/<project>/memory/`.
+- Update `MEMORY.md` index with any new file.
+- Any new class of mistake → **update this CLAUDE.md with a guardrail in the table below.** That's the only way it doesn't happen again.
+
+### 6. External state reconciliation
+- Supabase edge function version logged in the session summary.
+- GHL workflow Google Doc updated if a workflow changed.
+- All new shared-drive URLs surfaced in roadmap or summary so they're findable.
+
+### 7. Next-session prompt
+- Write a starter prompt that names: the current live state, what's pending human action, the next priority from the roadmap, and any "read these first" docs. Save it at the top of the session summary or as a standalone artifact.
+
+---
+
+## Mistakes-we've-already-made guardrails
+
+Each row is a real past bug. Don't relearn these.
+
+| Past mistake | Guardrail |
+|---|---|
+| 3 hours lost building on unverified GHL webhook format (Apr 15-16) | Read neighboring production code BEFORE writing any new integration. `ghl-sales-agent`, `ghl-message-receiver`, `sync-knowledge-base` are the canonical patterns. |
+| Hardcoded anon JWT in a DB trigger (Apr 15) | No secrets in SQL or source — vault secrets or env vars only. Grep every SQL file for `eyJ` before committing. |
+| 3 publicly exposed tables for 2 days | `get_advisors('security')` is mandatory after every migration. |
+| v7→v9 of `ghl-sales-agent` shipped to prod but not committed to git until days later | Every MCP `deploy_edge_function` call is immediately followed by `git add`+`git commit` of the same content. Never deploy from uncommitted working-tree state. |
+| Email payload sent `message` when GHL required `html`+`subject` | Verify real API contracts from live response or docs before first send. Don't assume by symmetry with SMS. |
+| "I'm Phillip Ngo" identity bug | Read every system prompt as an end-user would. If the prompt says "speaking as Phillip," the AI will literally claim to be Phillip. |
+| "I have no memory" lie (support prompt missing `historyStr`) | End-to-end integration test before ship. Verify parameters flow through, not just that helpers return the right shape. |
+| Silent subagent refactor (lazy-init in Task 3, 2026-04-16) | Verify subagent-reported file changes via `git diff`. "DONE" is not the same as a clean scoped change. |
+| Working tree left dirty across sessions | Start every session with `git status`; end every session clean. Runtime dirs in `.gitignore` once. |
+| Sessions shipped but never pushed to origin | Push decision is explicit every close-out. |
+| "This is too simple to brainstorm" | The brainstorming skill is non-negotiable. Simple projects are where unexamined assumptions cause the most wasted work. |
+
+---
+
 ## Key paths
 
 | What | Where |
