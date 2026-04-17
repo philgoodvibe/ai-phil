@@ -1,9 +1,11 @@
-import { assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
+  AGENCY_BOUNDARIES_BLOCK,
   BANNED_WORDS,
   containsBannedWord,
   buildSystemPrompt,
   isVoiceContext,
+  VOICE_CONTEXTS,
   type VoiceContext,
   type RapportFacts,
 } from './salesVoice.ts';
@@ -172,3 +174,23 @@ Deno.test('VOCABULARY_BLOCK teaches canonical MAX + MAYA expansions + acronym ru
   // The rule itself must be present so the model knows WHY to expand
   assertStringIncludes(prompt.toLowerCase(), 'expand');
 });
+
+// ---------------------------------------------------------------------------
+// Task 1 — AGENCY_BOUNDARIES_BLOCK tests
+// ---------------------------------------------------------------------------
+
+Deno.test('AGENCY_BOUNDARIES_BLOCK contains the no-agency rule', () => {
+  assert(AGENCY_BOUNDARIES_BLOCK.includes('not an agency'));
+  assert(AGENCY_BOUNDARIES_BLOCK.includes('never offer to audit') || AGENCY_BOUNDARIES_BLOCK.toLowerCase().includes('audit'));
+  assert(AGENCY_BOUNDARIES_BLOCK.includes("Phil's time"));
+  assert(AGENCY_BOUNDARIES_BLOCK.includes('weekly call'));
+});
+
+Deno.test('buildSystemPrompt includes AGENCY_BOUNDARIES_BLOCK for every context', () => {
+  for (const ctx of VOICE_CONTEXTS) {
+    const prompt = buildSystemPrompt(ctx, { family: [], occupation: [], recreation: [], money: [] }, '');
+    assert(prompt.includes('Agency boundaries'), `missing for context ${ctx}`);
+    assert(prompt.includes("we don't audit or manage"), `missing phrase for context ${ctx}`);
+  }
+});
+
