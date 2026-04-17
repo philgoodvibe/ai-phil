@@ -7,6 +7,8 @@ import {
   normalizeChannel,
   hasMemberTag,
   matchesEscalationKeyword,
+  readAgencyRole,
+  roleBlocksBilling,
 } from './index.ts';
 
 Deno.test('extractMessageBody — reads nested message.body', () => {
@@ -127,4 +129,49 @@ Deno.test('matchesEscalationKeyword — does not false-positive on substrings', 
   // but "uncancellable" shouldn't hit "cancel"? Actually it should — safer to escalate
   // This test documents the intended behavior: substring match is acceptable.
   assert(matchesEscalationKeyword('this is a chargeback situation'));
+});
+
+Deno.test('readAgencyRole — owner variants', () => {
+  assertEquals(readAgencyRole([{ name: '⭕️Agency Role', value: 'Agency Owner' }]), 'owner');
+  assertEquals(readAgencyRole([{ name: '⭕️Agency Role', value: 'owner' }]), 'owner');
+  assertEquals(readAgencyRole([{ name: '⭕️Agency Role', value: 'OWNER' }]), 'owner');
+});
+
+Deno.test('readAgencyRole — manager', () => {
+  assertEquals(readAgencyRole([{ name: '⭕️Agency Role', value: 'Agency Manager' }]), 'manager');
+  assertEquals(readAgencyRole([{ name: '⭕️Agency Role', value: 'manager' }]), 'manager');
+});
+
+Deno.test('readAgencyRole — team member', () => {
+  assertEquals(readAgencyRole([{ name: '⭕️Agency Role', value: 'Team Member' }]), 'team_member');
+  assertEquals(readAgencyRole([{ name: '⭕️Agency Role', value: 'team' }]), 'team_member');
+});
+
+Deno.test('readAgencyRole — blank → unknown', () => {
+  assertEquals(readAgencyRole([{ name: '⭕️Agency Role', value: '' }]), 'unknown');
+});
+
+Deno.test('readAgencyRole — missing field → unknown', () => {
+  assertEquals(readAgencyRole([]), 'unknown');
+  assertEquals(readAgencyRole(undefined), 'unknown');
+});
+
+Deno.test('readAgencyRole — matches by name substring', () => {
+  assertEquals(readAgencyRole([{ key: 'agency_role', value: 'Agency Owner' }]), 'owner');
+});
+
+Deno.test('roleBlocksBilling — owner allowed', () => {
+  assertEquals(roleBlocksBilling('owner'), false);
+});
+
+Deno.test('roleBlocksBilling — manager blocked', () => {
+  assertEquals(roleBlocksBilling('manager'), true);
+});
+
+Deno.test('roleBlocksBilling — team_member blocked', () => {
+  assertEquals(roleBlocksBilling('team_member'), true);
+});
+
+Deno.test('roleBlocksBilling — unknown blocked (most restrictive default)', () => {
+  assertEquals(roleBlocksBilling('unknown'), true);
 });

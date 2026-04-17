@@ -161,7 +161,43 @@ export function matchesEscalationKeyword(message: string): boolean {
   return ESCALATION_KEYWORDS.some(kw => lower.includes(kw));
 }
 
-// Stub handler — replaced in Task 10
+// ---------------------------------------------------------------------------
+// Agency role reader + gating
+// ---------------------------------------------------------------------------
+type CustomField = { id?: string; key?: string; name?: string; value?: unknown };
+
+export function readAgencyRole(
+  fields: CustomField[] | undefined
+): AgencyRole {
+  if (!fields || !fields.length) return 'unknown';
+  const match = fields.find(f => {
+    const name = (f.name ?? '').toLowerCase();
+    const key = (f.key ?? '').toLowerCase();
+    return name.includes('agency role') || key.includes('agency_role') || key.includes('agencyrole');
+  });
+  if (!match) return 'unknown';
+  const raw = String(match.value ?? '').trim().toLowerCase();
+  if (!raw) return 'unknown';
+  if (raw.includes('owner')) return 'owner';
+  if (raw.includes('manager')) return 'manager';
+  if (raw.includes('team')) return 'team_member';
+  return 'unknown';
+}
+
+export function roleBlocksBilling(role: AgencyRole): boolean {
+  return role !== 'owner';
+}
+
+export function roleDescription(role: AgencyRole): string {
+  switch (role) {
+    case 'owner': return 'Agency Owner (full access)';
+    case 'manager': return 'Agency Manager (billing changes managed by account owner)';
+    case 'team_member': return 'Team Member (billing and team management managed by account owner)';
+    case 'unknown': return 'Team Member (role unknown — most restrictive default applied)';
+  }
+}
+
+// Stub handler — replaced in Task 11
 Deno.serve(async (_req: Request) => {
   return new Response('ghl-member-agent scaffold', { status: 200 });
 });
