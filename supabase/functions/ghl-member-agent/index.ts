@@ -100,6 +100,46 @@ export function normalizeChannel(messageType: string): Channel {
   return 'sms';
 }
 
+// ---------------------------------------------------------------------------
+// resolveChannel — pure channel-resolution logic (exported for testing)
+// ---------------------------------------------------------------------------
+//
+// Mirror of ghl-sales-agent's resolveChannel (intentionally duplicated — the
+// two agents are kept self-contained so a bug in one doesn't cascade).
+// Three-layer fallback:
+//   1. Webhook rawMessageType (most authoritative)
+//   2. Conversation lastMessageType (Fix A — covers webhooks that omit type)
+//   3. Contact-shape (Fix B — email-only contact → email, even when 1 + 2 silent)
+// Defaults to 'sms'. 'phone' is never selected (no auto-reply supported).
+
+export interface ResolveChannelInput {
+  rawMessageType: string | null;
+  conversationLookupChannel: Channel | null;
+  contact: { email?: string; phone?: string };
+}
+export interface ResolveChannelOutput {
+  channel: Channel;
+  source: 'webhook' | 'conversation-lookup' | 'contact-shape' | 'default';
+}
+
+export function resolveChannel(input: ResolveChannelInput): ResolveChannelOutput {
+  if (input.rawMessageType) {
+    return { channel: normalizeChannel(input.rawMessageType), source: 'webhook' };
+  }
+  if (input.conversationLookupChannel && input.conversationLookupChannel !== 'phone') {
+    return { channel: input.conversationLookupChannel, source: 'conversation-lookup' };
+  }
+  const hasEmail = !!(input.contact.email && input.contact.email.trim());
+  const hasPhone = !!(input.contact.phone && input.contact.phone.trim());
+  if (hasEmail && !hasPhone) {
+    return { channel: 'email', source: 'contact-shape' };
+  }
+  if (input.conversationLookupChannel === 'phone' && hasEmail) {
+    return { channel: 'email', source: 'contact-shape' };
+  }
+  return { channel: 'sms', source: 'default' };
+}
+
 export function extractContactId(body: Record<string, unknown>): string | null {
   if (body.contact_id && typeof body.contact_id === 'string') return body.contact_id;
   if (body.contactId && typeof body.contactId === 'string') return body.contactId;
@@ -681,7 +721,10 @@ Deno.serve(async (req: Request) => {
   let conversationId = extractConversationId(body);
   const messageBody = extractMessageBody(body);
   const rawMessageType = extractMessageType(body);
-  let channel: Channel = rawMessageType ? normalizeChannel(rawMessageType) : 'sms';
+  // Defense-in-depth default — resolveChannel below sets the real value after
+  // contact is fetched. Declared here so the fatal-catch block can reference it.
+  let channel: Channel = 'sms';
+  let conversationLookupChannel: Channel | null = null;
 
   if (!contactId || !messageBody) {
     console.error('[extract] missing required fields', { contactId, conversationId, hasMessage: !!messageBody });
@@ -691,19 +734,26 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // Resolve conversationId if absent
-  if (!conversationId && contactId) {
+  // Resolve conversationId + capture suggestedChannel for Fix A.
+  // Run whenever type is missing (rawMessageType null) OR conversationId absent —
+  // this is the core of Fix A: previously lookup only ran when !conversationId,
+  // so a webhook with conversationId but no message_type would skip the lookup
+  // entirely and default to 'sms' even for email inbounds.
+  if (!rawMessageType || !conversationId) {
     const lookup = await lookupConversation(contactId);
-    if (!lookup) {
-      console.error('[extract] could not resolve conversationId for contact', contactId);
-      return new Response(
-        JSON.stringify({ error: 'Could not resolve conversationId', contactId }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+    if (!conversationId) {
+      // conversationId is required to fetch history — hard fail if we can't resolve it
+      if (!lookup) {
+        console.error('[extract] could not resolve conversationId for contact', contactId);
+        return new Response(
+          JSON.stringify({ error: 'Could not resolve conversationId', contactId }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      conversationId = lookup.id;
     }
-    conversationId = lookup.id;
-    if (!rawMessageType && lookup.suggestedChannel && lookup.suggestedChannel !== 'phone') {
-      channel = lookup.suggestedChannel;
+    if (lookup) {
+      conversationLookupChannel = lookup.suggestedChannel;
     }
   }
 
@@ -719,6 +769,16 @@ Deno.serve(async (req: Request) => {
     const firstName = contact?.firstName ?? '';
     const lastName = contact?.lastName ?? '';
     const phone = contact?.phone ?? '';
+
+    // Resolve the outbound channel now that we have the contact shape.
+    // resolveChannel applies three-layer fallback: webhook type → conversation
+    // lookup (Fix A) → contact shape (Fix B: email-only → email). 'phone' is
+    // never selected (no auto-reply supported).
+    channel = resolveChannel({
+      rawMessageType,
+      conversationLookupChannel,
+      contact: { email: contact?.email, phone: contact?.phone },
+    }).channel;
 
     // Step 4: Safety failsafe — this function is for members only.
     // If the member tag is missing (workflow misconfiguration), drop the request.
