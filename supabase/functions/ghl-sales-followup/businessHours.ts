@@ -11,14 +11,14 @@
 
 const FORMATTER = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Los_Angeles',
-  hour: 'numeric',
+  hour: '2-digit',
   hour12: false,
   weekday: 'short',
 });
 
 const BUSINESS_DAYS = new Set(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
 const START_HOUR = 9;
-const END_HOUR = 17;
+const END_HOUR = 17; // inclusive; hour 17 covers 17:00–17:59 local time
 
 export function isWithinBusinessHours(now: Date = new Date()): boolean {
   const parts = FORMATTER.formatToParts(now);
