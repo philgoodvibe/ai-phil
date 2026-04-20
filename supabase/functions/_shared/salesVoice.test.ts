@@ -2,10 +2,12 @@ import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/st
 import {
   AGENCY_BOUNDARIES_BLOCK,
   BANNED_WORDS,
+  buildHumeDiscoveryAddendum,
+  buildHumeSharedBundle,
+  buildSystemPrompt,
   containsBannedWord,
   detectInjectionAttempt,
   detectMemberClaim,
-  buildSystemPrompt,
   isVoiceContext,
   SECURITY_BOUNDARY_BLOCK,
   SECURITY_REFUSAL_PRIMARY,
@@ -370,8 +372,6 @@ Deno.test('support prompt includes insurance vocab but NOT acronym-expansion', (
   assert(p.includes('PIF'), 'members are operators; insurance vocab stays');
   assert(!p.includes('MAX = Marketing Ads Accelerator'), 'members already know the acronyms');
 });
-
-import { buildHumeSharedBundle, buildHumeDiscoveryAddendum } from './salesVoice.ts';
 
 Deno.test('buildHumeSharedBundle includes the 8 expected blocks in order', async () => {
   const b = await buildHumeSharedBundle();
