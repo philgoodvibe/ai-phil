@@ -29,7 +29,7 @@ export interface HumeClientLite {
   getPromptLatest(promptId: string): Promise<HumePrompt>;
   postPromptVersion(promptId: string, text: string, versionDescription: string): Promise<number>;
   getConfigLatest(configId: string): Promise<HumeConfig>;
-  postConfigVersion(configId: string, currentRaw: Record<string, unknown>, newPromptRef: { id: string; version: number }): Promise<number>;
+  postConfigVersion(configId: string, currentRaw: Record<string, unknown>, newPromptRef: { id: string; version: number }, versionDescription: string): Promise<number>;
 }
 
 export interface SyncDeps {
@@ -194,6 +194,7 @@ async function syncOneConfig(
     row.hume_config_id,
     currentConfig.raw,
     { id: row.hume_prompt_id, version: promptVersion },
+    desc,
   );
 
   return { promptVersion, configVersion };

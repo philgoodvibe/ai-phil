@@ -33,13 +33,24 @@ export class HumeClient {
   constructor(private readonly proxyFetch: HumeProxyFetch) {}
 
   async getPromptLatest(promptId: string): Promise<HumePrompt> {
-    const r = await this.proxyFetch({ method: 'GET', path: `/v0/evi/prompts/${promptId}` });
+    // Hume returns prompts as a paged list (newest-first). page_size=1 fetches
+    // only the latest version.
+    const r = await this.proxyFetch({
+      method: 'GET',
+      path: `/v0/evi/prompts/${promptId}?page_size=1&page_number=0`,
+    });
     if (!r.ok) throw new Error(`Hume GET prompt ${promptId} failed: ${r.status} ${JSON.stringify(r.body)}`);
-    const b = r.body as { id: string; version: number; text: string };
-    if (!b.id || typeof b.version !== 'number' || typeof b.text !== 'string') {
-      throw new Error(`Hume GET prompt ${promptId} returned unexpected shape: ${JSON.stringify(b)}`);
+    const paged = r.body as { prompts_page?: Array<Record<string, unknown>> };
+    const latest = paged.prompts_page?.[0];
+    if (!latest) {
+      throw new Error(`Hume GET prompt ${promptId} returned empty prompts_page: ${JSON.stringify(r.body)}`);
     }
-    return { id: b.id, version: b.version, text: b.text };
+    const version = latest.version;
+    const text = latest.text;
+    if (typeof version !== 'number' || typeof text !== 'string') {
+      throw new Error(`Hume GET prompt ${promptId} latest version missing text/version: ${JSON.stringify(latest)}`);
+    }
+    return { id: promptId, version, text };
   }
 
   async postPromptVersion(promptId: string, text: string, versionDescription: string): Promise<number> {
@@ -57,18 +68,29 @@ export class HumeClient {
   }
 
   async getConfigLatest(configId: string): Promise<HumeConfig> {
-    const r = await this.proxyFetch({ method: 'GET', path: `/v0/evi/configs/${configId}` });
+    // Hume returns configs as a paged list (newest-first). page_size=1 fetches
+    // only the latest version; we discard older versions we don't need.
+    const r = await this.proxyFetch({
+      method: 'GET',
+      path: `/v0/evi/configs/${configId}?page_size=1&page_number=0`,
+    });
     if (!r.ok) throw new Error(`Hume GET config ${configId} failed: ${r.status} ${JSON.stringify(r.body)}`);
-    const b = r.body as { id: string; version: number; prompt?: { id?: string; version?: number } };
-    if (!b.prompt?.id || typeof b.prompt.version !== 'number') {
-      throw new Error(`Hume GET config ${configId} missing prompt reference: ${JSON.stringify(b)}`);
+    const paged = r.body as { configs_page?: Array<Record<string, unknown>> };
+    const latest = paged.configs_page?.[0];
+    if (!latest) {
+      throw new Error(`Hume GET config ${configId} returned empty configs_page: ${JSON.stringify(r.body)}`);
+    }
+    const version = latest.version;
+    const prompt = latest.prompt as { id?: string; version?: number } | undefined;
+    if (typeof version !== 'number' || !prompt?.id || typeof prompt.version !== 'number') {
+      throw new Error(`Hume GET config ${configId} latest version missing prompt reference: ${JSON.stringify(latest)}`);
     }
     return {
-      id: b.id,
-      version: b.version,
-      promptId: b.prompt.id,
-      promptVersion: b.prompt.version,
-      raw: b as unknown as Record<string, unknown>,
+      id: configId,
+      version,
+      promptId: prompt.id,
+      promptVersion: prompt.version,
+      raw: latest,
     };
   }
 
@@ -76,13 +98,20 @@ export class HumeClient {
     configId: string,
     currentConfigBody: Record<string, unknown>,
     newPromptRef: { id: string; version: number },
+    versionDescription: string,
   ): Promise<number> {
-    // Carry over everything from the current config EXCEPT id/version (Hume sets those)
-    // and replace `prompt` with the new reference.
-    const { id: _id, version: _version, ...carryOver } = currentConfigBody;
-    void _id;
-    void _version;
-    const payload = { ...carryOver, prompt: newPromptRef };
+    // Strip server-managed fields before carrying over. The new version gets
+    // its own version_description; the old one describes the PRIOR version.
+    const {
+      id: _id,
+      version: _version,
+      created_on: _co,
+      modified_on: _mo,
+      version_description: _vd,
+      ...carryOver
+    } = currentConfigBody;
+    void _id; void _version; void _co; void _mo; void _vd;
+    const payload = { ...carryOver, prompt: newPromptRef, version_description: versionDescription };
     const r = await this.proxyFetch({ method: 'POST', path: `/v0/evi/configs/${configId}`, payload });
     if (!r.ok) throw new Error(`Hume POST config ${configId} failed: ${r.status} ${JSON.stringify(r.body)}`);
     const v = (r.body as { version?: number }).version;
