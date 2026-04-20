@@ -150,3 +150,29 @@ Deno.test('member-agent shouldGateInjection passes legitimate member questions',
   const result = shouldGateInjection('How do I reset my MAX campaign bids after last week?');
   assert(!result.gated);
 });
+
+// ---------------------------------------------------------------------------
+// stripTrailingSignature tests — double-signature bug fix (2026-04-19)
+// ---------------------------------------------------------------------------
+
+import { stripTrailingSignature } from './index.ts';
+
+Deno.test('stripTrailingSignature: removes single trailing -Ai Phil', () => {
+  assertEquals(stripTrailingSignature('Hello there.\n-Ai Phil'), 'Hello there.');
+});
+
+Deno.test('stripTrailingSignature: removes double trailing -Ai Phil (the bug)', () => {
+  assertEquals(stripTrailingSignature('Hello there.\n-Ai Phil\n-Ai Phil'), 'Hello there.');
+});
+
+Deno.test('stripTrailingSignature: preserves Ai Phil inside body (no trailing anchor)', () => {
+  assertEquals(stripTrailingSignature('Ai Phil helps you.'), 'Ai Phil helps you.');
+});
+
+Deno.test('stripTrailingSignature: whitespace-tolerant (extra spaces/newlines)', () => {
+  assertEquals(stripTrailingSignature('Got it.   - Ai  Phil   \n'), 'Got it.');
+});
+
+Deno.test('stripTrailingSignature: empty string returns empty string', () => {
+  assertEquals(stripTrailingSignature(''), '');
+});

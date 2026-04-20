@@ -127,6 +127,21 @@ export function normalizeChannel(messageType: string): Channel {
 }
 
 // ---------------------------------------------------------------------------
+// stripTrailingSignature — pure helper
+// ---------------------------------------------------------------------------
+//
+// Removes one-or-more trailing "-Ai Phil" signatures from a reply body before
+// the SMS sanitizer appends the canonical signature. Necessary because Claude
+// sometimes emits "-Ai Phil" inside the body when the system prompt leans on
+// the signature example, producing a double-signed SMS like
+// "message\n-Ai Phil\n-Ai Phil". Trailing-anchored so "Ai Phil helps you"
+// in the middle of a body is preserved.
+
+export function stripTrailingSignature(text: string): string {
+  return text.replace(/(?:\s*-\s*Ai\s*Phil\s*)+$/i, '').trimEnd();
+}
+
+// ---------------------------------------------------------------------------
 // resolveChannel — pure channel-resolution logic (exported for testing)
 // ---------------------------------------------------------------------------
 //
@@ -987,6 +1002,7 @@ Surface: ghl-member-agent`);
       const SMS_LIMIT = 480;
       const maxBody = SMS_LIMIT - SMS_SIGNATURE.length; // 472
       replyText = stripMarkdown(replyText);
+      replyText = stripTrailingSignature(replyText);
       if (replyText.length > maxBody) replyText = replyText.substring(0, maxBody - 3) + '...';
       replyText = replyText + SMS_SIGNATURE;
     }
