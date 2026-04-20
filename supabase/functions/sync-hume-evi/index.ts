@@ -55,13 +55,48 @@ Deno.serve(async (req) => {
     });
   }
 
-  let body: { trigger?: 'cron' | 'admin' | 'test' };
+  let body: { trigger?: 'cron' | 'admin' | 'test' | 'bootstrap-inspect'; config_ids?: string[] };
   try {
     body = await req.json();
   } catch {
     body = {};
   }
   const trigger = body.trigger ?? 'admin';
+
+  // Bootstrap-inspect mode — one-time read-only fetch of config + prompt metadata
+  // for each config_id in the payload. Used by the seed migration to populate
+  // ops.hume_config_registry without needing HUME_TOOL_SECRET on a developer
+  // workstation (the secret stays in Supabase edge-function env — one source of
+  // truth). No ops.hume_sync_runs row is written; no Hume POST is made.
+  if (trigger === 'bootstrap-inspect') {
+    const configIds = (body as { config_ids?: string[] }).config_ids ?? [];
+    if (!Array.isArray(configIds) || configIds.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "config_ids array required in body for bootstrap-inspect" }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    const results: Array<Record<string, unknown>> = [];
+    for (const cid of configIds) {
+      try {
+        const cfg = await humeClient.getConfigLatest(cid);
+        results.push({
+          config_id: cid,
+          config_version: cfg.version,
+          prompt_id: cfg.promptId,
+          prompt_version: cfg.promptVersion,
+        });
+      } catch (err) {
+        results.push({ config_id: cid, error: (err as Error).message });
+      }
+    }
+    return new Response(JSON.stringify({ mode: 'bootstrap-inspect', results }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const realTrigger = trigger as 'cron' | 'admin' | 'test';
 
   // Invariant: we insert a "running" row BEFORE runSync so failures leave an
   // audit trail. Known limitation: if the edge-runtime isolate dies between
@@ -74,7 +109,7 @@ Deno.serve(async (req) => {
     .schema('ops')
     .from('hume_sync_runs')
     .insert({
-      trigger,
+      trigger: realTrigger,
       bundle_hash: 'pending',
       bundle_changed: false,
       status: 'running',
@@ -121,7 +156,7 @@ Deno.serve(async (req) => {
         if (error) throw new Error(`registry update ${slug}: ${error.message}`);
       },
       hume: humeClient,
-      trigger,
+      trigger: realTrigger,
       log: (m, meta) => console.log(`[sync-hume-evi] ${m}`, meta ?? ''),
     });
 
