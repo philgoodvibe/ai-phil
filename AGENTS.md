@@ -4,6 +4,18 @@
 
 ---
 
+## 🔴 READ AT BOOT — Standing Orders + Architecture
+
+Before acting on any Phillip-proposed tool/method/framework, read in order:
+
+1. **Working-With-Phillip — Standing Orders** (RED tier, canonical for how every session works): https://drive.google.com/file/d/1Lsbx1KR1fFAj308qB_gLAfdszJ_JxueY/view — intake protocol (treat proposals as CANDIDATES, 2–4 option survey with his proposal labeled, "Recommend X because Y" first line), pushback standard, decision-lock, recommendation format.
+2. **`_system/architecture.md`** (True North, 3 KPIs, 5 Non-Negotiables, build order): https://drive.google.com/file/d/1FrLGjuQz400cORLlwU0qisz9ZdJoOba3/view
+3. **`10-company/Positioning-V1-LOCKED.md`** + **`70-decisions/`** DR folder: https://drive.google.com/drive/folders/1qvEj818sFuhAh3jSYgl68_GcPO7UpFPn
+
+If the task doesn't move one of the 3 KPIs, name that first and ask whether to cut/defer/rescope. **`_shared/salesVoice.ts` is the ONLY voice source (NN #1) — every AI Phil surface reads it at boot; Hume EVI prompts sync from it.**
+
+---
+
 ## What this repo is
 
 **ai-phil** is the standalone, embeddable voice + chat coaching widget for AIAI Mastermind (Phillip Ngo's insurance agent program). It runs on Hume EVI (emotional voice AI), is backed by a Supabase pgvector knowledge base, and drops into any website with a one-line `<script>` tag.

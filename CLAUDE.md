@@ -1,6 +1,20 @@
 # CLAUDE.md — ai-phil
 
-**Read `AGENTS.md` first.** This file adds behavioral rules for Claude Code sessions. `AGENTS.md` covers orientation, ownership, vault links, and deployment. This file covers conventions and guardrails.
+## 🔴 READ AT BOOT — Standing Orders + Architecture (before anything else)
+
+Every session reads these three docs in order before touching the task. If the task doesn't move one of the 3 KPIs, name that first and ask whether to cut, defer, or rescope — do not execute low-value work silently.
+
+1. **`80-processes/Working-With-Phillip.md`** (Standing Orders, RED-tier) — intake protocol, pushback standard, decision-lock respect, recommendation format (A/B/C/D + "Recommend X because Y" first line). Drive: https://drive.google.com/file/d/1Lsbx1KR1fFAj308qB_gLAfdszJ_JxueY/view
+2. **`_system/architecture.md`** — True North (95% autonomous by 2026-05-31), 3 KPIs (Phillip hrs/wk ≤5, median first-response <30s, silent-agent count =0), 5 Non-Negotiables, 4-step build order. Drive: https://drive.google.com/file/d/1FrLGjuQz400cORLlwU0qisz9ZdJoOba3/view
+3. **`10-company/Positioning-V1-LOCKED.md`** + **`70-decisions/` DRs** — positioning + §8 never-use list + locked decisions that cannot be silently contradicted.
+
+**Default posture:** Treat Phillip's proposals as CANDIDATES, run a 2–4 option survey with his proposal labeled explicitly, return "Recommend X because Y" + options + one unblocking question. Skip the survey (and say which exception applied) when: he says "lock it/go/just do it," it's time-critical, it's consistent with a locked DR or Non-Negotiable, or survey cost > execution cost.
+
+**`_shared/salesVoice.ts` is the ONLY voice source (Non-Negotiable #1).** Every AI Phil surface reads it at boot; Hume EVI prompts sync from it (Step 1 deliverable).
+
+---
+
+**Read `AGENTS.md` next.** This file adds behavioral rules for Claude Code sessions. `AGENTS.md` covers orientation, ownership, vault links, and deployment. This file covers conventions and guardrails.
 
 ---
 
