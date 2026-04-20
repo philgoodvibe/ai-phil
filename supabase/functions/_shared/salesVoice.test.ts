@@ -370,3 +370,45 @@ Deno.test('support prompt includes insurance vocab but NOT acronym-expansion', (
   assert(p.includes('PIF'), 'members are operators; insurance vocab stays');
   assert(!p.includes('MAX = Marketing Ads Accelerator'), 'members already know the acronyms');
 });
+
+import { buildHumeSharedBundle, buildHumeDiscoveryAddendum } from './salesVoice.ts';
+
+Deno.test('buildHumeSharedBundle includes the 8 expected blocks in order', async () => {
+  const b = await buildHumeSharedBundle();
+  assertEquals(b.blockNames, [
+    'SECURITY_BOUNDARY_BLOCK',
+    'IDENTITY_BLOCK',
+    'VOICE_BLOCK',
+    'FORM_FRAMEWORK_BLOCK',
+    'PROOF_SHAPE_BLOCK',
+    'NEVER_LIE_BLOCK',
+    'AGENCY_BOUNDARIES_BLOCK',
+    'INSURANCE_VOCABULARY_BLOCK',
+  ]);
+  // First block (security) must appear before second (identity) in text.
+  const secIdx = b.text.indexOf('Security boundaries (non-negotiable)');
+  const idIdx = b.text.indexOf('# Identity');
+  assert(secIdx >= 0 && idIdx > secIdx, 'security must precede identity');
+  // Excluded from the shared bundle
+  assert(!b.text.includes('Branded AiAi product acronyms'), 'acronym rule stays out of shared bundle');
+  assert(!b.text.includes('# Sales frameworks'), 'sales playbook stays out');
+});
+
+Deno.test('buildHumeSharedBundle is deterministic — same text + hash across calls', async () => {
+  const a = await buildHumeSharedBundle();
+  const b = await buildHumeSharedBundle();
+  assertEquals(a.text, b.text);
+  assertEquals(a.hash, b.hash);
+  // SHA-256 hex is 64 chars
+  assertEquals(a.hash.length, 64);
+  assert(/^[0-9a-f]{64}$/.test(a.hash));
+});
+
+Deno.test('buildHumeDiscoveryAddendum = BRANDED_ACRONYM_EXPANSION_BLOCK only', async () => {
+  const a = await buildHumeDiscoveryAddendum();
+  assertEquals(a.blockNames, ['BRANDED_ACRONYM_EXPANSION_BLOCK']);
+  assert(a.text.includes('MAX = Marketing Ads Accelerator'));
+  // The addendum is a small doc — not the whole shared bundle
+  assert(a.text.length < 2000);
+  assertEquals(a.hash.length, 64);
+});

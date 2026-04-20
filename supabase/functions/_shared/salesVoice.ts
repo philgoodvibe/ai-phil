@@ -655,3 +655,51 @@ export function buildSystemPrompt(
 
   return blocks.join('\n\n---\n\n');
 }
+
+// ---------------------------------------------------------------------------
+// Hume EVI nightly sync — render helpers
+// ---------------------------------------------------------------------------
+
+const SHARED_BUNDLE_BLOCKS: Array<[string, string]> = [
+  ['SECURITY_BOUNDARY_BLOCK', SECURITY_BOUNDARY_BLOCK],
+  ['IDENTITY_BLOCK', IDENTITY_BLOCK],
+  ['VOICE_BLOCK', VOICE_BLOCK],
+  ['FORM_FRAMEWORK_BLOCK', FORM_FRAMEWORK_BLOCK],
+  ['PROOF_SHAPE_BLOCK', PROOF_SHAPE_BLOCK],
+  ['NEVER_LIE_BLOCK', NEVER_LIE_BLOCK],
+  ['AGENCY_BOUNDARIES_BLOCK', AGENCY_BOUNDARIES_BLOCK],
+  ['INSURANCE_VOCABULARY_BLOCK', INSURANCE_VOCABULARY_BLOCK],
+];
+
+async function sha256Hex(s: string): Promise<string> {
+  const buf = new TextEncoder().encode(s);
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export interface HumeBundle {
+  text: string;
+  hash: string;
+  blockNames: string[];
+}
+
+/** Render the universal shared-block bundle for Hume EVI prompts. Every Hume
+ *  config (Discovery / New Member / Implementation Coach) receives this in the
+ *  AIPHIL-SHARED marker region. */
+export async function buildHumeSharedBundle(): Promise<HumeBundle> {
+  const text = SHARED_BUNDLE_BLOCKS.map(([, body]) => body).join('\n\n---\n\n');
+  const hash = await sha256Hex(text);
+  const blockNames = SHARED_BUNDLE_BLOCKS.map(([name]) => name);
+  return { text, hash, blockNames };
+}
+
+/** Discovery-only addendum: branded AIAI acronym expansion rule. The Discovery
+ *  Hume config serves prospects who have not been through the program; members
+ *  already know the acronyms. Not included in New Member / Implementation Coach. */
+export async function buildHumeDiscoveryAddendum(): Promise<HumeBundle> {
+  const text = BRANDED_ACRONYM_EXPANSION_BLOCK;
+  const hash = await sha256Hex(text);
+  return { text, hash, blockNames: ['BRANDED_ACRONYM_EXPANSION_BLOCK'] };
+}
