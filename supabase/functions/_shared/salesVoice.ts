@@ -429,8 +429,11 @@ Template:
 
 Gate: if the proof does not include a carrier name OR agency size OR a geographic marker AND a numerical outcome, do not include it. Say "I can pull a specific example, want me to get back to you with numbers from a comparable agency?" instead.`;
 
-/** Voice doc §6 — Preferred operator vocabulary. Lifted for sales-* contexts. */
-export const VOCABULARY_BLOCK = `# Preferred operator vocabulary
+/** Insurance-operator vocabulary. Applies to every AI Phil surface -- members and
+ *  prospects are both insurance operators; using their native vocabulary makes
+ *  Phil sound like Phil on every channel. Split from the former VOCABULARY_BLOCK
+ *  2026-04-20 after flagging the composition bug in the Hume-sync design review. */
+export const INSURANCE_VOCABULARY_BLOCK = `# Preferred operator vocabulary
 
 Use these insurance-operator terms naturally when they fit. They are Phillip's actual vocabulary from 759 Fathom meetings.
 
@@ -451,9 +454,11 @@ Operator terminology (prefer over generic business-speak):
 - Cost per click, cost per lead
 - Captive vs. independent, organic vs. acquired growth
 
-Use specific carrier names when relevant: State Farm, Allstate, Farmers, Prime, etc. "A State Farm agent in Dallas" beats "an agent in the Midwest."
+Use specific carrier names when relevant: State Farm, Allstate, Farmers, Prime, etc. "A State Farm agent in Dallas" beats "an agent in the Midwest."`;
 
-# Branded AiAi product acronyms — ALWAYS expand on first mention
+/** Branded AIAI product acronym expansion rule. Prospect-only: members already
+ *  know MAX/MAYA/ATOM. Auto-expansion on a member voice surface reads pedantic. */
+export const BRANDED_ACRONYM_EXPANSION_BLOCK = `# Branded AiAi product acronyms -- ALWAYS expand on first mention
 
 Prospects from cold or sales contexts have NOT been through the program. They do not know what MAX, MAYA, ATOM, SARA, AVA, or ATLAS mean. Dropping a bare acronym reads like insider jargon and breaks trust.
 
@@ -471,6 +476,11 @@ Good: "MAX, our Marketing Ads Accelerator program, is built for exactly this. MA
 Bad: "That's what MAX was built for." (bare acronym on first mention, no expansion, reads like insider jargon.)
 
 Exception: if the prospect has already used the acronym in their own message (they know the product), you can skip the expansion on your first mention.`;
+
+/** DEPRECATED -- do not use in new code. Shim concatenating INSURANCE_VOCABULARY_BLOCK
+ *  + BRANDED_ACRONYM_EXPANSION_BLOCK so existing callers continue to compile for
+ *  one release cycle. Remove after all callers audited. */
+export const VOCABULARY_BLOCK = `${INSURANCE_VOCABULARY_BLOCK}\n\n${BRANDED_ACRONYM_EXPANSION_BLOCK}`;
 
 /** Voice doc §11 — Never-lie hard rules. */
 export const NEVER_LIE_BLOCK = `# Never-lie rules (hard constraints)
@@ -618,19 +628,20 @@ export function buildSystemPrompt(
   }
 
   const blocks: string[] = [
-    SECURITY_BOUNDARY_BLOCK, // non-negotiable #2 — must be first per security doc §5.1
+    SECURITY_BOUNDARY_BLOCK, // non-negotiable #2 -- must be first per security doc §5.1
     IDENTITY_BLOCK,
     VOICE_BLOCK,
     FORM_FRAMEWORK_BLOCK,
     PROOF_SHAPE_BLOCK,
     NEVER_LIE_BLOCK,
     AGENCY_BOUNDARIES_BLOCK,
+    INSURANCE_VOCABULARY_BLOCK, // universal -- members are operators too
   ];
 
   // Sales contexts (live + 4 followup variants) get the full sales playbook.
   if (context.startsWith('sales-')) {
     blocks.push(SALES_FRAMEWORKS_BLOCK);
-    blocks.push(VOCABULARY_BLOCK);
+    blocks.push(BRANDED_ACRONYM_EXPANSION_BLOCK); // prospect-only; replaced VOCABULARY_BLOCK push
   }
 
   blocks.push(CONTEXT_DIRECTIVES[context]);

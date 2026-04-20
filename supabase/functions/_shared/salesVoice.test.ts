@@ -11,6 +11,9 @@ import {
   SECURITY_REFUSAL_PRIMARY,
   SECURITY_REFUSAL_SECONDARY,
   VOICE_CONTEXTS,
+  INSURANCE_VOCABULARY_BLOCK,
+  BRANDED_ACRONYM_EXPANSION_BLOCK,
+  VOCABULARY_BLOCK,
   type InjectionMatch,
   type VoiceContext,
   type RapportFacts,
@@ -161,11 +164,14 @@ Deno.test('sales-* contexts include VOCABULARY_BLOCK with operator terms', () =>
   assertStringIncludes(salesPrompt, 'Insurance Marketing Machine');
 });
 
-Deno.test('non-sales contexts do NOT include VOCABULARY_BLOCK', () => {
+Deno.test('non-sales contexts include insurance vocab but NOT acronym-expansion', () => {
   const emptyRapport: RapportFacts = { family: [], occupation: [], recreation: [], money: [] };
   const supportPrompt = buildSystemPrompt('support', emptyRapport, '(no prior)', '');
-  // "Automated Agency Circle" is unique to VOCABULARY_BLOCK (not in FORM/VOICE/etc.)
-  assertEquals(supportPrompt.includes('Automated Agency Circle'), false);
+  // INSURANCE_VOCABULARY_BLOCK is now universal -- members are operators too
+  assertEquals(supportPrompt.includes('Automated Agency Circle'), true, 'insurance vocab must be present for support');
+  assertEquals(supportPrompt.includes('Insurance Marketing Machine'), true, 'insurance vocab must be present for support');
+  // BRANDED_ACRONYM_EXPANSION_BLOCK is prospect-only -- must NOT appear for support
+  assertEquals(supportPrompt.includes('Marketing Ads Accelerator'), false, 'acronym expansion must not appear for support');
 });
 
 Deno.test('VOCABULARY_BLOCK teaches canonical MAX + MAYA expansions + acronym rule', () => {
@@ -326,4 +332,41 @@ Deno.test('detectInjectionAttempt — empty or very short input returns no match
   assertEquals(detectInjectionAttempt('').matched, false);
   assertEquals(detectInjectionAttempt('   ').matched, false);
   assertEquals(detectInjectionAttempt('hi').matched, false);
+});
+
+// ---------------------------------------------------------------------------
+// Task 1 — VOCABULARY_BLOCK split: INSURANCE_VOCABULARY_BLOCK + BRANDED_ACRONYM_EXPANSION_BLOCK
+// ---------------------------------------------------------------------------
+
+Deno.test('INSURANCE_VOCABULARY_BLOCK has operator vocab + no acronym-expansion rule', () => {
+  assert(INSURANCE_VOCABULARY_BLOCK.includes('PIF'));
+  assert(INSURANCE_VOCABULARY_BLOCK.includes('quote-to-bind'));
+  assert(INSURANCE_VOCABULARY_BLOCK.includes('State Farm'));
+  // acronym-expansion rule must NOT be here
+  assert(!INSURANCE_VOCABULARY_BLOCK.includes('Marketing Ads Accelerator'));
+  assert(!INSURANCE_VOCABULARY_BLOCK.includes('ALWAYS expand on first mention'));
+});
+
+Deno.test('BRANDED_ACRONYM_EXPANSION_BLOCK has MAX/MAYA/ATOM expansions', () => {
+  assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('MAX = Marketing Ads Accelerator'));
+  assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('MAYA = Marketing Assistant'));
+  assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('ATOM = Automated Team Onboarding'));
+  assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('first mention'));
+});
+
+Deno.test('VOCABULARY_BLOCK shim equals insurance + acronym concat', () => {
+  const expected = `${INSURANCE_VOCABULARY_BLOCK}\n\n${BRANDED_ACRONYM_EXPANSION_BLOCK}`;
+  assertEquals(VOCABULARY_BLOCK, expected);
+});
+
+Deno.test('sales-live prompt includes both new blocks', () => {
+  const p = buildSystemPrompt('sales-live', { family: [], occupation: [], recreation: [], money: [] }, '');
+  assert(p.includes('PIF'));
+  assert(p.includes('MAX = Marketing Ads Accelerator'));
+});
+
+Deno.test('support prompt includes insurance vocab but NOT acronym-expansion', () => {
+  const p = buildSystemPrompt('support', { family: [], occupation: [], recreation: [], money: [] }, '');
+  assert(p.includes('PIF'), 'members are operators; insurance vocab stays');
+  assert(!p.includes('MAX = Marketing Ads Accelerator'), 'members already know the acronyms');
 });
