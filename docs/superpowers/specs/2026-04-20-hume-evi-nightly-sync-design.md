@@ -69,13 +69,19 @@ Both go through `hume-admin` edge function (already deployed v5) as a thin proxy
 
 ### Shared-block render contract
 
-A new exported function in `_shared/salesVoice.ts`:
+Two new exported functions in `_shared/salesVoice.ts`:
 
 ```ts
 export function buildHumeSharedBundle(): {
   text: string;           // rendered markdown
   hash: string;           // SHA-256 of text
   blockNames: string[];   // in-order block labels for versionDescription
+};
+
+export function buildHumeDiscoveryAddendum(): {
+  text: string;           // rendered markdown for Discovery-only content
+  hash: string;
+  blockNames: string[];   // currently: ['BRANDED_ACRONYM_EXPANSION_BLOCK']
 };
 ```
 
@@ -87,9 +93,47 @@ Included blocks (in order):
 5. `PROOF_SHAPE_BLOCK`
 6. `NEVER_LIE_BLOCK`
 7. `AGENCY_BOUNDARIES_BLOCK`
-8. `VOCABULARY_BLOCK`
+8. `INSURANCE_VOCABULARY_BLOCK` (see composition fix below)
 
-`SALES_FRAMEWORKS_BLOCK` is deliberately excluded — Hume configs are voice conversations, not SMS sales funnels. `CONTEXT_DIRECTIVES` are also excluded — voice context is the Hume-specific curated content below the marker.
+Deliberately excluded from the shared bundle:
+- `SALES_FRAMEWORKS_BLOCK` — Hume configs are voice conversations, not SMS sales funnels.
+- `CONTEXT_DIRECTIVES` — voice context is Hume-specific curated content below the marker.
+- `BRANDED_ACRONYM_EXPANSION_BLOCK` — prospect-only; carried per-config (see addendum below).
+
+### Composition fix: split `VOCABULARY_BLOCK` (salesVoice.ts bug flagged 2026-04-20)
+
+Today `VOCABULARY_BLOCK` conflates two rules with different applicability domains:
+
+1. **Insurance-operator vocabulary** (PIF, premium volume, close rate, quote-to-bind, State Farm, Allstate, etc.) — universal. Members and prospects are both insurance operators; muting operator speak on member surfaces reduces persona fidelity.
+2. **Branded AIAI acronym expansion rule** (MAX → "Marketing Ads Accelerator" on first mention) — prospect-only. Per `feedback_branded_acronyms.md`: "always expand on first mention *in prospect-facing replies*." Members already know the acronyms; auto-expansion on voice sounds pedantic.
+
+Because both rules are currently glued into one `sales-*`-gated block, the member agent loses operator vocabulary too, and Hume New Member + Implementation Coach configs would face the same regression under a naive sync.
+
+**Fix (in scope for this spec's implementation):**
+- Split `VOCABULARY_BLOCK` → `INSURANCE_VOCABULARY_BLOCK` (universal) + `BRANDED_ACRONYM_EXPANSION_BLOCK` (prospect-only).
+- Keep the legacy `VOCABULARY_BLOCK` export as a deprecation shim for a single release cycle (re-exports the concatenation) so no edge function breaks mid-ship.
+- Update `buildSystemPrompt`: always include `INSURANCE_VOCABULARY_BLOCK`; include `BRANDED_ACRONYM_EXPANSION_BLOCK` only when `context.startsWith('sales-')`.
+- Remove the legacy `VOCABULARY_BLOCK` export + shim once all callers are audited.
+
+### Per-config addenda (Discovery-only)
+
+Two Hume configs (New Member, Implementation Coach) carry exactly the shared bundle. The Discovery config additionally carries `BRANDED_ACRONYM_EXPANSION_BLOCK` in a second, config-scoped marker region within the same prompt:
+
+```
+<!-- AIPHIL-SHARED-BEGIN v=<hash> -->
+...shared bundle...
+<!-- AIPHIL-SHARED-END -->
+
+<!-- AIPHIL-DISCOVERY-ADDENDUM-BEGIN v=<hash> -->
+...BRANDED_ACRONYM_EXPANSION_BLOCK...
+<!-- AIPHIL-DISCOVERY-ADDENDUM-END -->
+
+(human-curated Hume-specific content below, never touched by sync)
+```
+
+The sync function determines per-config addenda from `ops.hume_config_registry.slug`. New Member and Implementation Coach skip the addendum region entirely; their prompts never carry those markers. If the slug gains a new per-config block later (e.g., an Implementation-only `MEMBER_COURSE_MAP_BLOCK`), the registry plus a new addendum name is the only code change needed — no schema migration.
+
+`buildHumeSharedBundle` gains a companion `buildHumeDiscoveryAddendum()` that returns `{text, hash, blockNames}` for just the Discovery-only content. Short-circuit logic extends to also track a per-slug `hume_evi_last_addendum_hash:<slug>` in `sync_state`.
 
 ### Data model
 
