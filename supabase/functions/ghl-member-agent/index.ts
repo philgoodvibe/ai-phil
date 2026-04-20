@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { AGENCY_BOUNDARIES_BLOCK } from '../_shared/salesVoice.ts';
+import {
+  AGENCY_BOUNDARIES_BLOCK,
+  detectInjectionAttempt,
+  SECURITY_REFUSAL_PRIMARY,
+} from '../_shared/salesVoice.ts';
 
 // ---------------------------------------------------------------------------
 // Constants (non-secret — safe to hardcode)
@@ -20,6 +24,27 @@ const GHL_MESSAGE_TYPES: Record<number, string> = {
   1: 'Email', 2: 'SMS', 3: 'WhatsApp', 4: 'GMB', 5: 'IG', 6: 'FB', 7: 'Custom',
   8: 'WebChat', 9: 'Live_Chat', 10: 'Bot', 11: 'Calls'
 };
+
+// ---------------------------------------------------------------------------
+// Injection gate — pure helper for the regex detector
+// ---------------------------------------------------------------------------
+export interface InjectionGateResult {
+  gated: boolean;
+  pattern?: string;
+}
+
+/**
+ * Pure wrapper around detectInjectionAttempt. Returns { gated: true, pattern }
+ * on match, otherwise { gated: false }. Called by the handler BEFORE intent
+ * classification to short-circuit the LLM call on prompt-injection /
+ * data-exfiltration attempts. Member-agent is a higher-stakes surface
+ * (verified Tier 2 users), so the gate prevents any member data (rapport,
+ * course progress, resources) from being retrieved on a crafted payload.
+ */
+export function shouldGateInjection(messageBody: string): InjectionGateResult {
+  const m = detectInjectionAttempt(messageBody);
+  return m.matched ? { gated: true, pattern: m.pattern } : { gated: false };
+}
 
 // ---------------------------------------------------------------------------
 // Supabase client (service role — bypasses RLS)
@@ -826,6 +851,75 @@ Deno.serve(async (req: Request) => {
       history = await fetchLocalHistory(contactId);
     }
     const historyStr = formatHistory(history);
+
+    // Step 4.5: Injection gate — mirror ghl-sales-agent. Member-agent is a
+    // higher-stakes surface (verified Tier 2 users), so injection attempts
+    // must short-circuit BEFORE intent classification, KB fetches, or any
+    // path that could retrieve member data. Per AI-Phil-Security-Boundaries.md
+    // §3: no per-attempt alerting (leaks detection timing); rollup at 3-in-24h.
+    const injectionGate = shouldGateInjection(messageBody);
+    if (injectionGate.gated) {
+      console.log(`[injection-attempt] pattern=${injectionGate.pattern} contact=${contactId}`);
+
+      let rollupCount = 0;
+      try {
+        const { count } = await supabase
+          .schema('ops')
+          .from('injection_attempts')
+          .select('id', { count: 'exact', head: true })
+          .eq('contact_id', contactId)
+          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+        rollupCount = count ?? 0;
+      } catch (err) {
+        console.error('[injection-attempt] rollup count query failed:', err);
+      }
+
+      try {
+        const { error } = await supabase.schema('ops').from('injection_attempts').insert({
+          contact_id: contactId,
+          surface: 'ghl-member-agent',
+          attempt_pattern: injectionGate.pattern,
+          message_preview: messageBody.substring(0, 500),
+          model_response: SECURITY_REFUSAL_PRIMARY,
+        });
+        if (error) console.error('[injection-attempt] audit insert error:', error.message);
+      } catch (err) {
+        console.error('[injection-attempt] audit insert threw:', err);
+      }
+
+      // Member-agent SMS rule: all SMS replies end with -Ai Phil signature.
+      const refusalText = channel === 'sms'
+        ? `${SECURITY_REFUSAL_PRIMARY}\n-Ai Phil`
+        : SECURITY_REFUSAL_PRIMARY;
+      const sendOk = await sendGhlReply(contactId, refusalText, channel);
+
+      if (rollupCount >= 2) {
+        await writeAgentSignal({
+          source_agent: 'ghl-member-agent',
+          target_agent: 'richie-cc2',
+          signal_type: 'injection-attempt-rollup',
+          status: 'delivered',
+          channel: 'open',
+          priority: 1,
+          payload: {
+            contact_id: contactId,
+            attempt_count_last_24h: rollupCount + 1,
+            latest_pattern: injectionGate.pattern,
+            surface: 'ghl-member-agent',
+          },
+        });
+        await postGoogleChatAlert(`AI Phil injection-attempt rollup trip-wire
+Contact: ${contactId}
+Attempts in last 24h: ${rollupCount + 1}
+Latest pattern: ${injectionGate.pattern}
+Surface: ghl-member-agent`);
+      }
+
+      return new Response(
+        JSON.stringify({ ok: true, gated: 'injection-attempt', pattern: injectionGate.pattern, sent: sendOk }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
 
     // Step 5: Escalation keyword pre-check — fast path, no Claude
     const keywordEscalation = matchesEscalationKeyword(messageBody);
