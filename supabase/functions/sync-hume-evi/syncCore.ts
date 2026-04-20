@@ -54,7 +54,7 @@ export interface SyncVersionEntry {
 }
 
 export interface SyncResult {
-  status: 'running' | 'ok' | 'noop' | 'partial' | 'error';
+  status: 'ok' | 'noop' | 'partial' | 'error';
   bundleHash: string;
   addendumHash: string;
   bundleChanged: boolean;

@@ -23,7 +23,14 @@ const humeProxyFetch: HumeProxyFetch = async ({ method, path, payload }) => {
     },
     body: JSON.stringify({ method, path, payload }),
   });
-  const body = await res.json() as HumeProxyResponse;
+  const raw = await res.json() as unknown;
+  if (
+    typeof raw !== 'object' || raw === null ||
+    !('ok' in raw) || !('status' in raw) || !('body' in raw)
+  ) {
+    throw new Error(`hume-admin returned unexpected shape: ${JSON.stringify(raw)}`);
+  }
+  const body = raw as HumeProxyResponse;
   // hume-admin already returns { status, ok, body } — pass through
   return body;
 };
@@ -56,7 +63,13 @@ Deno.serve(async (req) => {
   }
   const trigger = body.trigger ?? 'admin';
 
-  // Insert a "running" sync run row up front so we can always find it in the audit.
+  // Invariant: we insert a "running" row BEFORE runSync so failures leave an
+  // audit trail. Known limitation: if the edge-runtime isolate dies between
+  // this insert and the try/catch update (OOM, timeout, unhandled rejection
+  // outside the try block), the row stays 'running' permanently. Mitigation
+  // deferred to a pg_cron sweeper — see vault/60-content/ai-phil/_ROADMAP.md
+  // "Hume sync stale-running sweeper" follow-up. A human inspecting the audit
+  // table sees stale rows obviously; at nightly cadence this is acceptable.
   const { data: runInsert, error: runInsertErr } = await supabase
     .schema('ops')
     .from('hume_sync_runs')
@@ -92,6 +105,10 @@ Deno.serve(async (req) => {
       },
       // sync_state is in the public schema (see migration 20260415000000_sync_state.sql)
       loadLastBundleHash: async () => loadSyncState('hume_evi_last_bundle_hash'),
+      // Addendum hash is keyed per-slug because future configs could each carry
+      // their own addendum. Today only 'discovery' carries_addendum=true, so
+      // this is the only key. If more configs become carries_addendum=true,
+      // replace this with a per-slug key inside updateRegistryRow.
       loadLastAddendumHash: async () => loadSyncState('hume_evi_last_addendum_hash:discovery'),
       saveLastBundleHash: (h) => saveSyncState('hume_evi_last_bundle_hash', h),
       saveLastAddendumHash: (h) => saveSyncState('hume_evi_last_addendum_hash:discovery', h),
