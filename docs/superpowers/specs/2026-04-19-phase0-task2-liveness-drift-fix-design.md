@@ -63,6 +63,21 @@ alter table ops.ai_inbox_conversation_memory
     'qualifying','presenting','objection','closed','nurture',
     'member'
   ]));
+
+comment on column ops.ai_inbox_conversation_memory.intent is
+  'Per-surface intent vocabulary. Sales-agent writes one of '
+  '{sales,event,support,unknown}. Member-agent writes one of '
+  '{onboarding,content,event,coaching,support,escalate}. '
+  'event/support overlap between both surfaces — use stage to disambiguate: '
+  'stage=''member'' means the row originated from the member-agent surface.';
+
+comment on column ops.ai_inbox_conversation_memory.stage is
+  'Conversation stage. Sales-agent writes one of '
+  '{qualifying,presenting,objection,closed,nurture} (the sales-funnel taxonomy). '
+  'Member-agent writes the literal ''member'' — member sub-state lives in '
+  'the intent column. Downstream analytics MUST filter by stage before '
+  'aggregating by intent to avoid conflating prospect-support with '
+  'member-support.';
 ```
 
 **Validation:** all 100 existing rows use `intent ∈ {sales,event,support,unknown}` and `stage = 'qualifying'` — all remain valid under the new constraints.
@@ -85,22 +100,24 @@ Add a unit test in `supabase/functions/ghl-member-agent/index.test.ts` verifying
 
 ### 2.3 — Strip pre-existing `-Ai Phil` before sanitizer appends
 
-In `supabase/functions/ghl-member-agent/index.ts` SMS sanitizer (around line 985), before appending `\n-Ai Phil`:
+In `supabase/functions/ghl-member-agent/index.ts` SMS sanitizer (around line 985), between `stripMarkdown` and the `replyText + SMS_SIGNATURE` append:
 
 ```typescript
 replyText = stripMarkdown(replyText);
-replyText = replyText.replace(/\s*-\s*Ai\s*Phil\s*$/i, '').trimEnd();
+replyText = replyText.replace(/(?:\s*-\s*Ai\s*Phil\s*)+$/i, '').trimEnd();
+// existing length-cap + sig-append follow unchanged
 ```
+
+The regex is trailing-anchored, case-insensitive, whitespace-tolerant, and greedy across one-or-more signature repeats (covers the double-signature seen in the test SMS and any future triple).
 
 Test cases:
 - `"Hello -Ai Phil"` → `"Hello"`
 - `"Hello\n-Ai Phil"` → `"Hello"`
-- `"Hello\n-Ai Phil\n-Ai Phil"` → `"Hello\n-Ai Phil"` first trim (one pass is enough — second sig lives in the sig slot, we want to nuke the LLM-emitted one). Actually: run the regex in a loop until no match, OR use `.replace(/(\s*-\s*Ai\s*Phil\s*)+$/i, '')` to strip one-or-more trailing signatures. Spec picks the loop-free one-or-more variant.
+- `"Hello\n-Ai Phil\n-Ai Phil"` → `"Hello"`
 - `"Ai Phil helps you"` → unchanged (no trailing anchor).
+- `""` → unchanged.
 
-Final regex: `/(?:\s*-\s*Ai\s*Phil\s*)+$/i` — greedy, trailing, handles 1..n.
-
-No behavior change for email channel (signature is SMS-only).
+Email channel (`channel !== 'sms'`) is untouched; signature is SMS-only.
 
 ### 2.4 — Retarget audit signals to `quimby` (ai-phil side only; signal-dispatch follow-up)
 
@@ -116,9 +133,33 @@ In both `ghl-member-agent/index.ts` and `ghl-sales-agent/index.ts`, every `write
 
 **Why not aim at another existing poll-only agent (e.g., `leo-cc2`).** Architecturally dishonest — Leo is technical-ops, not the CEO steward. Would create a second drift.
 
-**Follow-up (tracked, NOT in this PR):** signal-dispatch v13 — add `'quimby'` to `POLL_ONLY_AGENTS`. This eliminates the DNS-error ride-along and makes the audit stream clean. Whether Quimby stays poll-only long-term or gets an HTTP adapter pointing at his Paperclip URL is a Step 2 decision — deferred to Quimby-setup time per Phil's guidance 2026-04-19 ("put it on the table to review once we set up Quimby"). Tracking row is added to `vault/60-content/ai-phil/_ROADMAP.md` under "Known issues / cross-repo follow-ups" as part of close-out.
+**Follow-up (tracked, NOT in this PR):** signal-dispatch v13 — add `'quimby'` to `POLL_ONLY_AGENTS`. This eliminates the DNS-error ride-along and makes the audit stream clean. Whether Quimby stays poll-only long-term or gets an HTTP adapter pointing at his Paperclip URL is a Step 2 decision — deferred to Quimby-setup time per Phil's guidance 2026-04-19 ("put it on the table to review once we set up Quimby").
+
+**Tracking placement (both required at close-out so the TODO lives where it fires, not where it was written):**
+
+1. `vault/60-content/ai-phil/_ROADMAP.md` — under a new "Cross-repo follow-ups" subsection: one row pointing at the signal-dispatch v13 one-liner with the DNS-error threshold (below) and the defer-until-Quimby clause.
+2. `vault/_system/cross-repo-followups.md` — create if missing; this becomes the canonical accretion point for "this needs to happen in another repo" items Leo CC2 / Philgood OS agents are expected to scan. First row = signal-dispatch v13. Link back to this spec.
+3. Next `vault/_system/leo-cc2-architecture-ping.md` push — add a one-liner under an "Open follow-ups" block so Leo sees it at his next architecture-ping read (the existing ping doc is a message draft for Telegram thread 859).
+
+**DNS-error noise budget (trigger to expedite v13):**
+
+- Baseline expected: ≈ 1 dispatch-log row with `payload.results.quimby` DNS error per member-agent inbound. Current traffic ≈ 20–40 inbounds/day → ≈ 20–40 cosmetic-error rows/day.
+- **Expedite if EITHER triggers:** (a) rolling 7-day average of DNS-error dispatch-log rows > 100/day (signals traffic ramp — noise is no longer cosmetic), OR (b) calendar date reaches 2026-05-03 without signal-dispatch v13 landing (14 days from spec — don't let this silently become permanent).
+- **Monitoring query** (include in Ops dashboard or run weekly during close-out):
+  ```sql
+  select date_trunc('day', created_at) as day, count(*) as dns_errors
+  from public.agent_signals
+  where signal_type = 'dispatch-log'
+    and payload->'results'->>'quimby' like '%dns error%'
+    and created_at > now() - interval '14 days'
+  group by 1 order by 1 desc;
+  ```
 
 ### Execution order
+
+**Pre-flight check (before any write):**
+- Confirm `signal-dispatch` routing is source-code-only (no `signal_routing_config` / `agent_routes` table). Query: `select table_name from information_schema.tables where table_schema in ('public','ops') and table_name ilike any (array['%rout%','%dispatch%']);`. Expected: zero or a dispatch-log/edge-function audit table, no routing config. If a routing table IS found, pause and add a §2.4 sub-step to update it alongside.
+- Confirm `ops.agent_registry` is advisory-only (no dispatch routing there). Query: `select column_name from information_schema.columns where table_schema='ops' and table_name='agent_registry';` — look for any `endpoint_url` / `gateway_url` / `dispatch_url` column. Expected: none (only heartbeat / status metadata).
 
 1. 2.1 (migration) — apply first, widens acceptance before any code change lands so intermediate deploys don't break.
 2. 2.2 + 2.3 + 2.4 — one commit per concern, deploy both agents once.
@@ -132,7 +173,7 @@ In both `ghl-member-agent/index.ts` and `ghl-sales-agent/index.ts`, every `write
 - **Sales-agent regression from widened constraints.** Mitigated: widening never invalidates existing valid tuples, and sales-agent writes `{sales|event|support|unknown} + qualifying` exclusively — all still valid.
 - **Claude keeps emitting `-Ai Phil` inside the body.** The regex strip handles it; side-effect-free.
 - **Hardcoded richie-cc2 elsewhere.** Grep for `richie-cc2` across `supabase/functions/` + `supabase/migrations/` + `src/` before closing. If other references are found, they may need independent decisions.
-- **`signal-dispatch` routing config in a table.** If the routing lives in a Postgres table, removing richie-cc2 is a data change that should be paired with the migration.
+- **Signal-dispatch routing table** — moved from risks to the pre-flight check above. Must be answered (not deferred) before any write.
 
 ## Testing
 
