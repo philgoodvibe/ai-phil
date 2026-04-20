@@ -1019,8 +1019,8 @@ Surface: ghl-member-agent`);
           channel,
           role: 'user',
           message: messageBody,
-          intent: 'member_support',
-          stage: finalIntent,
+          intent: finalIntent,
+          stage: 'member',
         },
         {
           contact_id: contactId,
@@ -1028,8 +1028,8 @@ Surface: ghl-member-agent`);
           channel,
           role: 'assistant',
           message: replyText,
-          intent: 'member_support',
-          stage: finalIntent,
+          intent: finalIntent,
+          stage: 'member',
         },
       ]);
       if (error) console.error('[memory] insert error:', error.message);
