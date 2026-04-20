@@ -554,6 +554,7 @@ export function buildSystemPrompt(
   }
 
   const blocks: string[] = [
+    SECURITY_BOUNDARY_BLOCK, // non-negotiable #2 — must be first per security doc §5.1
     IDENTITY_BLOCK,
     VOICE_BLOCK,
     FORM_FRAMEWORK_BLOCK,

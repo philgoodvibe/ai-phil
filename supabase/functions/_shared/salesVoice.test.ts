@@ -265,3 +265,21 @@ Deno.test('SECURITY_REFUSAL_PRIMARY and SECONDARY are the canonical phrasings', 
   assertStringIncludes(SECURITY_REFUSAL_SECONDARY, 'MAX, Social Media Content Machine, ATOM');
   assertStringIncludes(SECURITY_REFUSAL_SECONDARY, 'Happy to answer questions');
 });
+
+Deno.test('buildSystemPrompt places SECURITY_BOUNDARY_BLOCK first for every VoiceContext', () => {
+  const emptyRapport: RapportFacts = { family: [], occupation: [], recreation: [], money: [] };
+  for (const ctx of VOICE_CONTEXTS) {
+    const prompt = buildSystemPrompt(ctx, emptyRapport, '');
+    assert(
+      prompt.startsWith('# Security boundaries (non-negotiable)'),
+      `SECURITY_BOUNDARY_BLOCK must be first for context ${ctx}, got: ${prompt.slice(0, 80)}`,
+    );
+    // Existing blocks must still be present
+    assertStringIncludes(prompt, '# Identity', `IDENTITY_BLOCK missing for ${ctx}`);
+    assertStringIncludes(prompt, '# Voice', `VOICE_BLOCK missing for ${ctx}`);
+    assertStringIncludes(prompt, `# Context: ${ctx}`, `context directive missing for ${ctx}`);
+    // Must appear exactly once
+    const occurrences = prompt.split('# Security boundaries (non-negotiable)').length - 1;
+    assertEquals(occurrences, 1, `SECURITY_BOUNDARY_BLOCK should appear exactly once, got ${occurrences} for ${ctx}`);
+  }
+});
