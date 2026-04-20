@@ -607,7 +607,7 @@ Deno.serve(async (req: Request) => {
     if (tags.some(t => t.includes('aiai-member-active'))) {
       await writeAgentSignal({
         source_agent: 'ghl-sales-agent',
-        target_agent: 'richie-cc2',
+        target_agent: 'quimby',
         signal_type: 'member-contact-received',
         status: 'delivered',
         channel: 'open',
@@ -679,7 +679,7 @@ Deno.serve(async (req: Request) => {
       if (rollupCount >= 2) {
         await writeAgentSignal({
           source_agent: 'ghl-sales-agent',
-          target_agent: 'richie-cc2',
+          target_agent: 'quimby',
           signal_type: 'injection-attempt-rollup',
           status: 'delivered',
           channel: 'open',
@@ -714,7 +714,7 @@ Surface: ghl-sales-agent`);
 
       await writeAgentSignal({
         source_agent: 'ghl-sales-agent',
-        target_agent: 'richie-cc2',
+        target_agent: 'quimby',
         signal_type: 'unknown-member-claim',
         status: sendOk ? 'delivered' : 'failed',
         channel: 'open',
@@ -827,7 +827,7 @@ Auto-reply sent: ${sendOk ? 'yes' : 'FAILED'}`);
           console.error('[guardrail] banned word still present after retry, sending anyway, flagging for review');
           await writeAgentSignal({
             source_agent: 'ghl-sales-agent',
-            target_agent: 'richie-cc2',
+            target_agent: 'quimby',
             signal_type: 'banned-word-after-retry',
             status: 'flagged',
             channel: 'open',
@@ -957,7 +957,7 @@ Conversation: ${conversationId}`;
     // Step 12: Audit signal
     await writeAgentSignal({
       source_agent: 'ghl-sales-agent',
-      target_agent: 'richie-cc2',
+      target_agent: 'quimby',
       signal_type: sendOk ? 'ai-sales-reply-sent' : 'ai-sales-error',
       status: sendOk ? 'delivered' : 'failed',
       channel: 'open',
@@ -983,7 +983,7 @@ Conversation: ${conversationId}`;
     const msg = err instanceof Error ? err.message : String(err);
     await writeAgentSignal({
       source_agent: 'ghl-sales-agent',
-      target_agent: 'richie-cc2',
+      target_agent: 'quimby',
       signal_type: 'ai-sales-error',
       status: 'failed',
       channel: 'open',

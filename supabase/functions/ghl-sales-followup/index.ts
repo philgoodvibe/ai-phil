@@ -351,7 +351,7 @@ async function processRow(row: QueueRow): Promise<void> {
       .eq('conversation_id', row.conversation_id);
     await writeAgentSignal({
       source_agent: 'ghl-sales-followup',
-      target_agent: 'richie-cc2',
+      target_agent: 'quimby',
       signal_type: 'member-converted-skip-followup',
       status: 'delivered',
       channel: 'open',
@@ -432,7 +432,7 @@ async function processRow(row: QueueRow): Promise<void> {
         console.error(`[processRow] ${row.contact_id} banned word still present after retry, sending anyway`);
         await writeAgentSignal({
           source_agent: 'ghl-sales-followup',
-          target_agent: 'richie-cc2',
+          target_agent: 'quimby',
           signal_type: 'banned-word-after-retry',
           status: 'flagged',
           channel: 'open',
@@ -545,7 +545,7 @@ async function processRow(row: QueueRow): Promise<void> {
   // Step k: Audit signal.
   await writeAgentSignal({
     source_agent: 'ghl-sales-followup',
-    target_agent: 'richie-cc2',
+    target_agent: 'quimby',
     signal_type: 'followup-sent',
     status: 'delivered',
     channel: 'open',
@@ -614,7 +614,7 @@ Deno.serve(async (req: Request) => {
       console.error(`[processRow] ${row.contact_id} threw:`, msg);
       await writeAgentSignal({
         source_agent: 'ghl-sales-followup',
-        target_agent: 'richie-cc2',
+        target_agent: 'quimby',
         signal_type: 'followup-error',
         status: 'failed',
         channel: 'open',

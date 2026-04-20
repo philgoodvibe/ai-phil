@@ -842,7 +842,7 @@ Deno.serve(async (req: Request) => {
       console.error('[safety] non-member hit member endpoint — dropping', { contactId });
       await writeAgentSignal({
         source_agent: 'ghl-member-agent',
-        target_agent: 'richie-cc2',
+        target_agent: 'quimby',
         signal_type: 'non-member-at-member-endpoint',
         status: 'dropped',
         channel: 'open',
@@ -911,7 +911,7 @@ Deno.serve(async (req: Request) => {
       if (rollupCount >= 2) {
         await writeAgentSignal({
           source_agent: 'ghl-member-agent',
-          target_agent: 'richie-cc2',
+          target_agent: 'quimby',
           signal_type: 'injection-attempt-rollup',
           status: 'delivered',
           channel: 'open',
@@ -1054,7 +1054,7 @@ Surface: ghl-member-agent`);
     // Step 13: Audit signal
     await writeAgentSignal({
       source_agent: 'ghl-member-agent',
-      target_agent: 'richie-cc2',
+      target_agent: 'quimby',
       signal_type: sendOk ? 'ai-member-reply-sent' : 'ai-member-error',
       status: sendOk ? 'delivered' : 'failed',
       channel: 'open',
@@ -1083,7 +1083,7 @@ Surface: ghl-member-agent`);
     const msg = err instanceof Error ? err.message : String(err);
     await writeAgentSignal({
       source_agent: 'ghl-member-agent',
-      target_agent: 'richie-cc2',
+      target_agent: 'quimby',
       signal_type: 'ai-member-error',
       status: 'failed',
       channel: 'open',
