@@ -102,16 +102,21 @@ Final regex: `/(?:\s*-\s*Ai\s*Phil\s*)+$/i` — greedy, trailing, handles 1..n.
 
 No behavior change for email channel (signature is SMS-only).
 
-### 2.4 — Route audit signals to `quimby`
+### 2.4 — Retarget audit signals to `quimby` (ai-phil side only; signal-dispatch follow-up)
 
 In both `ghl-member-agent/index.ts` and `ghl-sales-agent/index.ts`, every `writeAgentSignal({ ..., target_agent: 'richie-cc2', ... })` becomes `target_agent: 'quimby'`.
 
-Additionally, check `signal-dispatch` edge function for any hardcoded `richie-cc2` routing rule; if found, update to `quimby`. This is ORTHOGONAL to removing the DNS failure — the DNS failure comes from signal-dispatch trying to POST to `archies-mac-mini.tail51ba6f.ts.net`. The fix is to either:
+**Signal-dispatch behaviour after retargeting.** `signal-dispatch` v12 (source in Leo CC2 / Philgood OS domain, not in this repo) routes named `target_agent` via the `explicit_target` rule. An unknown target falls through HTTP dispatch to `${GATEWAY_URL}/dispatch` (currently `archies-mac-mini.tail51ba6f.ts.net`, dead). `quimby` is not yet in the `POLL_ONLY_AGENTS` set, so after the retarget each inbound will still produce one `dispatch-log` audit row with a DNS-error field in `payload.results.quimby`. The underlying audit row in `agent_signals` still lands, so **no signal is lost** — only a cosmetic error string rides along.
 
-- **(a)** remove the HTTP dispatch for `quimby` entirely (Quimby doesn't exist yet; audit rows in `agent_signals` are sufficient; dispatch-log noise goes away)
-- **(b)** leave dispatch alone and accept one audit-signal error per inbound until Quimby lands
+**Why not fix signal-dispatch in this PR.** It lives outside the ai-phil repo, owned by Leo CC2 / Philgood OS. Reaching in from an ai-phil drift fix is scope creep into another repo's ownership. The DR-2026-04-19-Paperclip-Adoption commits the signal bus to staying put as the realtime comms primitive, so there is no architectural question here — it's a one-line edit (add `'quimby'` to `POLL_ONLY_AGENTS`) that belongs in its own small PR in its own repo.
 
-Recommendation: **(a)**. Check `signal-dispatch` source; if it has a URL map, set `quimby` to null/skip; if it uses per-row URL lookup from a config table, remove the richie-cc2 row. This keeps audit rows clean and removes noise.
+**Why not keep `richie-cc2`.** Architecture.md names Quimby as the canonical escalation / audit steward. Richie is retiring per Phil 2026-04-19. Leaving the target pointed at Richie is semantically wrong regardless of the DNS noise.
+
+**Why not drop the audit signal.** The DR explicitly keeps the signal bus for realtime inter-agent comms. Dropping the audit deprives Quimby of context he will want as soon as he lands.
+
+**Why not aim at another existing poll-only agent (e.g., `leo-cc2`).** Architecturally dishonest — Leo is technical-ops, not the CEO steward. Would create a second drift.
+
+**Follow-up (tracked, NOT in this PR):** signal-dispatch v13 — add `'quimby'` to `POLL_ONLY_AGENTS`. This eliminates the DNS-error ride-along and makes the audit stream clean. Whether Quimby stays poll-only long-term or gets an HTTP adapter pointing at his Paperclip URL is a Step 2 decision — deferred to Quimby-setup time per Phil's guidance 2026-04-19 ("put it on the table to review once we set up Quimby"). Tracking row is added to `vault/60-content/ai-phil/_ROADMAP.md` under "Known issues / cross-repo follow-ups" as part of close-out.
 
 ### Execution order
 
@@ -120,7 +125,7 @@ Recommendation: **(a)**. Check `signal-dispatch` source; if it has a URL map, se
 3. Verification SMS — Phillip sends one plain SMS. Expected:
    - New row in `ops.ai_inbox_conversation_memory` with `intent ∈ {onboarding,content,event,coaching,support,escalate}` and `stage = 'member'`.
    - SMS reply has exactly one `-Ai Phil` signature.
-   - `public.agent_signals` dispatch row has no DNS error (or no dispatch-log row for `quimby` at all if we take path (a)).
+   - `public.agent_signals` row with `target_agent = 'quimby'`, `signal_type = 'ai-member-reply-sent'` (the audit). Companion `dispatch-log` row may still carry a DNS error in `payload.results.quimby` — expected until signal-dispatch v13 lands the follow-up one-liner.
 
 ## Risks
 
@@ -140,7 +145,8 @@ Recommendation: **(a)**. Check `signal-dispatch` source; if it has a URL map, se
 
 - **stage collapses to `'member'`** — single new value, sub-state lives in intent. Per Phillip 2026-04-19.
 - **target_agent = `quimby`** — canonical-not-yet-live, per Phillip 2026-04-19.
-- **signal-dispatch noise fix: take path (a)** — remove the HTTP dispatch for quimby entirely rather than accept error rows.
+- **signal-dispatch edit NOT in this PR** — cross-repo scope, belongs in Leo CC2 / Philgood OS territory. Accept cosmetic DNS-error ride-along until signal-dispatch v13 lands the `POLL_ONLY_AGENTS` one-liner. The underlying audit signal lands correctly regardless.
+- **Quimby adapter shape (poll-only vs HTTP)** — deferred to Quimby-setup (architecture Step 2) per Phil 2026-04-19 ("put it on the table to review once we set up Quimby").
 - **No backfill** — 48h of lost member-agent memory is acceptable; rapport layer reads GHL history directly.
 
 ## Out-of-scope (defer to later drift-fix rounds)
