@@ -458,7 +458,7 @@ Use specific carrier names when relevant: State Farm, Allstate, Farmers, Prime, 
 
 /** Branded AIAI product acronym expansion rule. Prospect-only: members already
  *  know MAX/MAYA/ATOM. Auto-expansion on a member voice surface reads pedantic. */
-export const BRANDED_ACRONYM_EXPANSION_BLOCK = `# Branded AiAi product acronyms -- ALWAYS expand on first mention
+export const BRANDED_ACRONYM_EXPANSION_BLOCK = `# Branded AiAi product acronyms — ALWAYS expand on first mention
 
 Prospects from cold or sales contexts have NOT been through the program. They do not know what MAX, MAYA, ATOM, SARA, AVA, or ATLAS mean. Dropping a bare acronym reads like insider jargon and breaks trust.
 
@@ -628,7 +628,7 @@ export function buildSystemPrompt(
   }
 
   const blocks: string[] = [
-    SECURITY_BOUNDARY_BLOCK, // non-negotiable #2 -- must be first per security doc §5.1
+    SECURITY_BOUNDARY_BLOCK, // non-negotiable #2 — must be first per security doc §5.1
     IDENTITY_BLOCK,
     VOICE_BLOCK,
     FORM_FRAMEWORK_BLOCK,
