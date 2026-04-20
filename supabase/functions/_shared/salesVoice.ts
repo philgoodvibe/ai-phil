@@ -217,6 +217,70 @@ export function detectMemberClaim(text: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// detectInjectionAttempt — prompt-injection / data-exfiltration regex detector
+// ---------------------------------------------------------------------------
+//
+// Seven labeled patterns from 80-processes/AI-Phil-Security-Boundaries.md §3.
+// Conservative by design: we prefer missing a novel attack to flagging a
+// legitimate prospect. The monthly ops.injection_attempts aggregate review
+// (security doc §6) is the tuning feedback loop.
+//
+// Called in ghl-sales-agent + ghl-member-agent handlers BEFORE detectMemberClaim.
+// On match, callers log to ops.injection_attempts, send the canned refusal,
+// skip the LLM call.
+
+export interface InjectionMatch {
+  matched: boolean;
+  pattern?: string;
+}
+
+interface InjectionPattern {
+  label: string;
+  regex: RegExp;
+}
+
+const INJECTION_PATTERNS: readonly InjectionPattern[] = [
+  {
+    label: 'ignore-previous',
+    regex: /\b(?:ignore|disregard|forget)\s+(?:the\s+)?(?:previous|prior|above|all|your)\s+(?:instructions?|rules?|prompts?|system|guidelines?)\b/i,
+  },
+  {
+    label: 'role-override',
+    regex: /\b(?:you\s+are\s+now|act\s+as|pretend\s+(?:to\s+be|you\s+are)|roleplay\s+as)\s+(?:a\s+|an\s+|the\s+)?(?:DAN|developer\s+mode|admin(?:istrator)?|unrestricted|jailbroken|root|sudo|system|phillip\s+ngo)\b/i,
+  },
+  {
+    label: 'reveal-prompt',
+    regex: /\b(?:reveal|show|print|output|reproduce|disclose|tell\s+me)\s+(?:your|the)\s+(?:system\s+prompt|instructions?\s+verbatim|voice\s+philosophy|salesvoice|configuration|source\s+code)\b/i,
+  },
+  {
+    label: 'prompt-extraction',
+    regex: /\bwhat\s+(?:are\s+your|is\s+your|were\s+your)\s+(?:original|initial|actual)\s+(?:instructions?|rules?|prompts?|guidelines?)\b/i,
+  },
+  {
+    label: 'developer-mode',
+    regex: /\b(?:enter|activate|switch\s+to)\s+(?:developer|god|admin|debug)\s+mode\b/i,
+  },
+  {
+    label: 'jailbreak',
+    regex: /\bjailbreak(?:ing|ed)?\b|\bDAN\s+mode\b/i,
+  },
+  {
+    label: 'encoding-probe',
+    regex: /\b(?:encode|encoded)\s+(?:your|the)\s+(?:rules?|prompts?|instructions?|system)\s+(?:as|in|with)\s+(?:base64|rot\s?13|hex)\b/i,
+  },
+] as const;
+
+export function detectInjectionAttempt(text: string): InjectionMatch {
+  if (!text || text.trim().length < 4) return { matched: false };
+  for (const p of INJECTION_PATTERNS) {
+    if (p.regex.test(text)) {
+      return { matched: true, pattern: p.label };
+    }
+  }
+  return { matched: false };
+}
+
+// ---------------------------------------------------------------------------
 // Prompt blocks — lifted from the voice doc
 // ---------------------------------------------------------------------------
 
