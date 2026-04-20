@@ -349,8 +349,8 @@ Deno.test('INSURANCE_VOCABULARY_BLOCK has operator vocab + no acronym-expansion 
 
 Deno.test('BRANDED_ACRONYM_EXPANSION_BLOCK has MAX/MAYA/ATOM expansions', () => {
   assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('MAX = Marketing Ads Accelerator'));
-  assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('MAYA = Marketing Assistant'));
-  assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('ATOM = Automated Team Onboarding'));
+  assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('MAYA = Marketing Assistant to Your Agency'));
+  assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('ATOM = Automated Team Onboarding Machine'));
   assert(BRANDED_ACRONYM_EXPANSION_BLOCK.includes('first mention'));
 });
 

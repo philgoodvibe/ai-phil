@@ -607,7 +607,8 @@ ${lines.join('\n')}`;
  * proof shape, never-lie rules, rapport injection, context directive, and
  * conversation history.
  *
- * `sales-*` contexts additionally get the full SALES_FRAMEWORKS_BLOCK.
+ * All contexts receive INSURANCE_VOCABULARY_BLOCK (members are operators too).
+ * `sales-*` contexts additionally get SALES_FRAMEWORKS_BLOCK + BRANDED_ACRONYM_EXPANSION_BLOCK.
  *
  * @param context  one of the 8 VoiceContext values
  * @param rapport  F.O.R.M. facts for this contact (may be empty)
