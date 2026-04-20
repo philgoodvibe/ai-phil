@@ -13,6 +13,7 @@ import {
 } from '../_shared/rapport.ts';
 import { fetchCachedGoogleDoc } from '../_shared/kbCache.ts';
 import { computeNextSendAt, classifyTouch } from './cadence.ts';
+import { isWithinBusinessHours } from './businessHours.ts';
 
 // ---------------------------------------------------------------------------
 // Constants (non-secret — safe to hardcode)
@@ -575,6 +576,26 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({ error: 'Unauthorized' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  // Business-hours gate (Phase 0 Task 3, 2026-04-20).
+  // Cron fires every hour Mon-Fri UTC (schedule `0 * * * 1-5`); the
+  // helper gates on America/Los_Angeles local time, which is DST-aware.
+  // Outside the window: log + return 200 gated; no queue read, no send.
+  if (!isWithinBusinessHours()) {
+    await writeAgentSignal({
+      source_agent: 'ghl-sales-followup',
+      target_agent: 'quimby',
+      signal_type: 'ai-followup-gated',
+      status: 'delivered',
+      channel: 'open',
+      priority: 3,
+      payload: { gated: 'outside-business-hours' },
+    });
+    return new Response(
+      JSON.stringify({ ok: true, gated: 'outside-business-hours' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   }
 
