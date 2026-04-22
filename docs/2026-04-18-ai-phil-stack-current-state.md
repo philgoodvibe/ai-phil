@@ -35,7 +35,7 @@ The "AI Phil Stack" is the customer-facing layer of AIAI Mastermind: the systems
 **Source-of-truth precedence for Ai Phil:** repo git history (behavior) > Supabase DB + edge functions (state) > Drive vault (doctrine). This is **inverted** from Leo CC2's stack (where vaults are canonical). In this stack, code is canonical — vault lags. `[drift-relative-to-philgood-os]`
 
 **Sibling stacks that coexist in the same Supabase:**
-- **PhilGood OS** — Leo CC2 + Donna + Alfred + Emora + Watchdog + Pachie + Richie fleet (Mac-mini daemons) writing to `public.agent_signals`, `ops.activity_log`, `ops.agent_registry`. Owned out of `Coding Projects/Philgood OS/`. `[verified]`
+- **PhilGood OS** — Leo CC2 + Donna + Alfred + Emora + Watchdog + Pachie fleet (Mac-mini daemons) writing to `public.agent_signals`, `ops.activity_log`, `ops.agent_registry`. Richie retired 2026-04-20 (`DR-2026-04-20-Richie-Retired.md`). Owned out of `Coding Projects/Philgood OS/`. `[verified]`
 - **SAGE** — Next.js member portal + Chrome extension at `Coding Projects/SAGE - Screen Aware Guided Experience/`, Vercel-deployed, same Supabase, Stripe billing, auth via Supabase Auth. Last commit 2026-04-17. `[verified]`
 - **Automated Reels - Phil Ai** — Remotion 4 pipeline at `Coding Projects/Automated Reels - Phil Ai/`, Claude-Code-orchestrated. Writes to Supabase storage bucket `reel-assets` and probably notifies via edge function `content-pipeline-notify` v17. Last commit 2026-04-18. `[verified]`
 
