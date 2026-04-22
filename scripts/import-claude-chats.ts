@@ -329,13 +329,31 @@ export function parseSession(
 }
 
 /**
- * Get the text of the first user message in a session.
+ * Strip Claude Code system-generated wrapper tags so the "first user prompt"
+ * reflects the human's actual input, not the harness framing. Without this,
+ * sessions started via /clear or similar local commands collapse to slugs
+ * like "local-command-caveat-caveat-the-messages-below-were".
+ */
+export function stripSystemWrapperTags(text: string): string {
+  return text
+    .replace(/<local-command-(?:stdout|stderr|caveat)[^>]*>[\s\S]*?<\/local-command-(?:stdout|stderr|caveat)>/g, "")
+    .replace(/<command-(?:name|message|args)[^>]*>[\s\S]*?<\/command-(?:name|message|args)>/g, "")
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
+    .trim();
+}
+
+/**
+ * Get the text of the first user message in a session. Skips turns whose
+ * text is empty after stripping Claude Code wrapper tags (e.g. turns that
+ * are ONLY a local-command-caveat wrapper with no actual prompt).
  */
 function firstUserText(session: Session): string {
   for (const turn of session.turns) {
     if (turn.role !== "user") continue;
     for (const part of turn.parts) {
-      if (part.kind === "text" && part.text.trim()) return part.text.trim();
+      if (part.kind !== "text") continue;
+      const stripped = stripSystemWrapperTags(part.text);
+      if (stripped) return stripped;
     }
   }
   return "";
