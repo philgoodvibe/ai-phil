@@ -133,6 +133,9 @@ Each numbered item below exists because it was once skipped and cost real hours 
 - **Ai Phil capability wiki** (`vault/60-content/ai-phil/AI-Phil-Brain.md` or companion): update if a new touchpoint/agent/tool shipped.
 - **Live-sync folder check:** new Google Docs are NOT in the KB auto-sync folder (Drive ID `1WvYoladPakRleEscONNFXVgHv3-hjbEE`) unless intentional.
 
+### 4b. Re-open vault docs AFTER push-decision resolves
+Vault markdown is not structurally wired to observe live git/deploy state — the vault session reads whatever is in these files. If you wrote the roadmap Shipped row and session summary in step 4 BEFORE the push decision (which is normal, because §1 requires a clean tree before §4), they captured pre-push state. The second a push, deploy, or any other material action resolves, re-open both files and edit in the final state ("pushed to origin/main on YYYY-MM-DD", "edge function now at vN", "first cron fire confirmed at HH:MM UTC", etc.). *(Guardrail added 2026-04-21 after the Hume-sync vault scoreboard showed "Push 19 commits" as a blocking item for 24h+ after the push had already happened.)*
+
 ### 5. Persistent memory (across sessions)
 - Add or update relevant file in `~/.claude/projects/<project>/memory/`.
 - Update `MEMORY.md` index with any new file.
