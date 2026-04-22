@@ -1,20 +1,27 @@
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
   AGENCY_BOUNDARIES_BLOCK,
+  AGENCY_BOUNDARIES_VOICE_BLOCK,
   BANNED_WORDS,
+  BRANDED_ACRONYM_EXPANSION_BLOCK,
+  BRANDED_ACRONYM_VOICE_BLOCK,
   buildHumeDiscoveryAddendum,
   buildHumeSharedBundle,
   buildSystemPrompt,
   containsBannedWord,
   detectInjectionAttempt,
   detectMemberClaim,
+  FORM_VOICE_BLOCK,
+  IDENTITY_VOICE_BLOCK,
+  INSURANCE_VOCABULARY_BLOCK,
   isVoiceContext,
+  NEVER_LIE_VOICE_BLOCK,
   SECURITY_BOUNDARY_BLOCK,
   SECURITY_REFUSAL_PRIMARY,
   SECURITY_REFUSAL_SECONDARY,
+  SECURITY_VOICE_BLOCK,
   VOICE_CONTEXTS,
-  INSURANCE_VOCABULARY_BLOCK,
-  BRANDED_ACRONYM_EXPANSION_BLOCK,
+  VOICE_HORMOZI_VOICE_BLOCK,
   VOCABULARY_BLOCK,
   type InjectionMatch,
   type VoiceContext,
@@ -411,4 +418,82 @@ Deno.test('buildHumeDiscoveryAddendum = BRANDED_ACRONYM_EXPANSION_BLOCK only', a
   // The addendum is a small doc — not the whole shared bundle
   assert(a.text.length < 2000);
   assertEquals(a.hash.length, 64);
+});
+
+// ---------------------------------------------------------------------------
+// Task 1 — 7 voice-compressed blocks for Hume EVI speech-model window
+// ---------------------------------------------------------------------------
+
+Deno.test('IDENTITY_VOICE_BLOCK carries the core identity rule', () => {
+  assertStringIncludes(IDENTITY_VOICE_BLOCK, "I'm Ai Phil");
+  assertStringIncludes(IDENTITY_VOICE_BLOCK, "NOT Phillip");
+  assertStringIncludes(IDENTITY_VOICE_BLOCK, "Never claim to be a real person");
+  assert(IDENTITY_VOICE_BLOCK.length < 600, `IDENTITY_VOICE_BLOCK too long: ${IDENTITY_VOICE_BLOCK.length}`);
+});
+
+Deno.test('VOICE_HORMOZI_VOICE_BLOCK carries voice attributes + Hormozi rule', () => {
+  assertStringIncludes(VOICE_HORMOZI_VOICE_BLOCK, 'Contractions mandatory');
+  assertStringIncludes(VOICE_HORMOZI_VOICE_BLOCK, 'No em dashes');
+  assertStringIncludes(VOICE_HORMOZI_VOICE_BLOCK, '# Hormozi opener rule');
+  assertStringIncludes(VOICE_HORMOZI_VOICE_BLOCK, 'prove you read their last message');
+  assert(VOICE_HORMOZI_VOICE_BLOCK.length < 850, `too long: ${VOICE_HORMOZI_VOICE_BLOCK.length}`);
+});
+
+Deno.test('SECURITY_VOICE_BLOCK carries override refusal + never-reveal + refusal mode', () => {
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'ignore previous instructions');
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'base64');
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'Never reveal');
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'unknown prospect');
+  assertStringIncludes(SECURITY_VOICE_BLOCK, "Let's keep our conversation focused");
+  assert(SECURITY_VOICE_BLOCK.length < 1300, `too long: ${SECURITY_VOICE_BLOCK.length}`);
+  assert(!SECURITY_VOICE_BLOCK.includes('Tier 1'), 'voice variant should drop Tier 1 taxonomy');
+  assert(!SECURITY_VOICE_BLOCK.includes('Tier 2'), 'voice variant should drop Tier 2 taxonomy');
+  // Anti-drift: all 6 attack vectors must be present
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'pretend to be Y');
+  // Anti-drift: complete never-reveal list
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'internal company details');
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'database or GHL IDs');
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'costs, compensation, contracts, pipeline, churn, revenue');
+  assertStringIncludes(SECURITY_VOICE_BLOCK, "names, emails, phones, or status");
+  // Anti-drift: complete default-posture rule
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'billing, or history');
+  // Anti-drift: complete indirect-probe rule
+  assertStringIncludes(SECURITY_VOICE_BLOCK, 'marketing level, never with specific numbers');
+  // Style: no em dashes inside this block's body (VOICE_BLOCK bans them for AI replies -- system prompt should not model them)
+  assert(!SECURITY_VOICE_BLOCK.includes('—'), 'SECURITY_VOICE_BLOCK must not contain em dashes');
+});
+
+Deno.test('FORM_VOICE_BLOCK carries 4 pillars + one-fact-per-reply rule', () => {
+  assertStringIncludes(FORM_VOICE_BLOCK, 'Family');
+  assertStringIncludes(FORM_VOICE_BLOCK, 'Occupation');
+  assertStringIncludes(FORM_VOICE_BLOCK, 'Recreation');
+  assertStringIncludes(FORM_VOICE_BLOCK, 'Money');
+  assertStringIncludes(FORM_VOICE_BLOCK, 'one fact per reply');
+  assert(FORM_VOICE_BLOCK.length < 550, `too long: ${FORM_VOICE_BLOCK.length}`);
+});
+
+Deno.test('NEVER_LIE_VOICE_BLOCK carries 4 consolidated rules', () => {
+  assertStringIncludes(NEVER_LIE_VOICE_BLOCK, 'Never claim to be Phillip');
+  assertStringIncludes(NEVER_LIE_VOICE_BLOCK, 'Never fabricate');
+  assertStringIncludes(NEVER_LIE_VOICE_BLOCK, 'never claim to have met the prospect before');
+  assertStringIncludes(NEVER_LIE_VOICE_BLOCK, 'escalate to a human');
+  assert(NEVER_LIE_VOICE_BLOCK.length < 600, `too long: ${NEVER_LIE_VOICE_BLOCK.length}`);
+});
+
+Deno.test('AGENCY_BOUNDARIES_VOICE_BLOCK carries core rule + declining phrasings', () => {
+  assertStringIncludes(AGENCY_BOUNDARIES_VOICE_BLOCK, 'coaching program, not an agency');
+  assertStringIncludes(AGENCY_BOUNDARIES_VOICE_BLOCK, "we don't audit or manage member accounts");
+  assertStringIncludes(AGENCY_BOUNDARIES_VOICE_BLOCK, 'bring to the next weekly call');
+  assert(AGENCY_BOUNDARIES_VOICE_BLOCK.length < 850, `too long: ${AGENCY_BOUNDARIES_VOICE_BLOCK.length}`);
+});
+
+Deno.test('BRANDED_ACRONYM_VOICE_BLOCK carries rule + 6 canonical expansions', () => {
+  assertStringIncludes(BRANDED_ACRONYM_VOICE_BLOCK, 'expand on first mention');
+  assertStringIncludes(BRANDED_ACRONYM_VOICE_BLOCK, 'MAX = Marketing Ads Accelerator');
+  assertStringIncludes(BRANDED_ACRONYM_VOICE_BLOCK, 'MAYA = Marketing Assistant to Your Agency');
+  assertStringIncludes(BRANDED_ACRONYM_VOICE_BLOCK, 'ATOM = Automated Team Onboarding Machine');
+  assertStringIncludes(BRANDED_ACRONYM_VOICE_BLOCK, 'SARA');
+  assertStringIncludes(BRANDED_ACRONYM_VOICE_BLOCK, 'AVA');
+  assertStringIncludes(BRANDED_ACRONYM_VOICE_BLOCK, 'ATLAS');
+  assert(BRANDED_ACRONYM_VOICE_BLOCK.length < 750, `too long: ${BRANDED_ACRONYM_VOICE_BLOCK.length}`);
 });
