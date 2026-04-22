@@ -10,6 +10,9 @@ import {
   extractRapport,
   storeRapport,
   mergeRapportFacts,
+  recordExtraction,
+  type ExtractResult,
+  type ExtractStatus,
 } from '../_shared/rapport.ts';
 import { fetchCachedGoogleDoc } from '../_shared/kbCache.ts';
 import { computeNextSendAt, classifyTouch } from './cadence.ts';
@@ -484,24 +487,39 @@ async function processRow(row: QueueRow): Promise<void> {
     console.error('[memory] insert threw:', err);
   }
 
-  // Step i: Extract rapport (non-fatal). No user turn — extractor handles empty userMessage.
+  // Step i: Extract rapport + audit (non-fatal). Outbound touch has no user
+  // turn — extractor handles empty userMessage.
   try {
     const currentRapport = await fetchRapport(supabase, row.contact_id);
-    const newFacts = await extractRapport(
-      {
-        userMessage: '',
-        assistantReply: replyText,
-        conversationId: row.conversation_id,
-      },
+    const result = await extractRapport(
+      { userMessage: '', assistantReply: replyText, conversationId: row.conversation_id },
       currentRapport,
       Deno.env.get('ANTHROPIC_API_KEY') ?? '',
     );
-    if (Object.values(newFacts).some((arr) => arr.length > 0)) {
-      const merged = mergeRapportFacts(currentRapport, newFacts);
+    const existingTotal =
+      currentRapport.family.length + currentRapport.occupation.length +
+      currentRapport.recreation.length + currentRapport.money.length;
+
+    let mergedTotalWhenOk: number | undefined;
+    let factsAddedWhenOk: number | undefined;
+    if (result.status === 'ok') {
+      const merged = mergeRapportFacts(currentRapport, result.facts);
       await storeRapport(supabase, row.contact_id, merged);
+      mergedTotalWhenOk = merged.family.length + merged.occupation.length +
+        merged.recreation.length + merged.money.length;
+      factsAddedWhenOk = result.facts.family.length + result.facts.occupation.length +
+        result.facts.recreation.length + result.facts.money.length;
     }
+
+    await recordExtraction(
+      supabase,
+      followupAuditArgsFromResult(
+        row.contact_id, row.conversation_id ?? null,
+        existingTotal, result, mergedTotalWhenOk, factsAddedWhenOk,
+      ),
+    );
   } catch (err) {
-    console.error('[rapport] extract threw (non-fatal):', err);
+    console.error('[rapport] followup extract/audit threw (non-fatal):', err);
   }
 
   // Step j: Update or delete queue row via cadence calculator.
@@ -560,6 +578,59 @@ async function processRow(row: QueueRow): Promise<void> {
       reply_preview: replyText.substring(0, 200),
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// followupAuditArgsFromResult — maps ExtractResult to recordExtraction args
+// surface is pinned to 'ghl-sales-followup'
+// ---------------------------------------------------------------------------
+
+export function followupAuditArgsFromResult(
+  contactId: string,
+  conversationId: string | null,
+  existingTotal: number,
+  result: ExtractResult,
+  mergedTotalWhenOk?: number,
+  factsAddedWhenOk?: number,
+): {
+  contactId: string;
+  conversationId: string | null;
+  surface: 'ghl-sales-followup';
+  status: ExtractStatus;
+  factsAdded: number;
+  factsTotalAfter: number;
+  latencyMs: number;
+  errorSnippet?: string;
+} {
+  const surface = 'ghl-sales-followup' as const;
+  switch (result.status) {
+    case 'ok':
+      return { contactId, conversationId, surface, status: 'ok',
+        factsAdded: factsAddedWhenOk ?? 0,
+        factsTotalAfter: mergedTotalWhenOk ?? existingTotal,
+        latencyMs: result.latencyMs };
+    case 'empty':
+      return { contactId, conversationId, surface, status: 'empty',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs };
+    case 'http_error':
+      return { contactId, conversationId, surface, status: 'http_error',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+        errorSnippet: `HTTP ${result.httpStatus}: ${result.error}` };
+    case 'parse_error':
+      return { contactId, conversationId, surface, status: 'parse_error',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+        errorSnippet: result.error };
+    case 'no_api_key':
+      return { contactId, conversationId, surface, status: 'no_api_key',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: 0 };
+    case 'threw':
+      return { contactId, conversationId, surface, status: 'threw',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+        errorSnippet: result.error };
+    case 'skipped_no_user_content':
+      return { contactId, conversationId, surface, status: 'skipped_no_user_content',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: 0 };
+  }
 }
 
 // ---------------------------------------------------------------------------
