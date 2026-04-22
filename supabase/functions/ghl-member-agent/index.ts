@@ -5,6 +5,15 @@ import {
   detectInjectionAttempt,
   SECURITY_REFUSAL_PRIMARY,
 } from '../_shared/salesVoice.ts';
+import {
+  fetchRapport,
+  extractRapport,
+  storeRapport,
+  mergeRapportFacts,
+  recordExtraction,
+  type ExtractResult,
+  type ExtractStatus,
+} from '../_shared/rapport.ts';
 
 // ---------------------------------------------------------------------------
 // Constants (non-secret — safe to hardcode)
@@ -745,6 +754,85 @@ function escalationAcknowledgment(firstName: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// F.O.R.M. extractor helpers
+// ---------------------------------------------------------------------------
+
+const CANNED_ESCALATION_MARKERS = [
+  'a human teammate will get back to you shortly',
+  "i'm flagging this to the team",
+];
+
+export function isCannedEscalationReply(reply: string): boolean {
+  const lower = reply.toLowerCase();
+  return CANNED_ESCALATION_MARKERS.some((m) => lower.includes(m));
+}
+
+/**
+ * Decide whether to skip the Haiku extractor for this turn. Short escalation
+ * messages and the canned-boilerplate reply carry no F.O.R.M. content;
+ * running the extractor just burns tokens. When skipped, caller still logs
+ * one audit row with status='skipped_no_user_content' so the skip is
+ * externally visible.
+ */
+export function shouldSkipExtractor(
+  intent: string,
+  userMessage: string,
+  assistantReply: string,
+): boolean {
+  if (intent === 'escalate' && userMessage.length < 40) return true;
+  if (isCannedEscalationReply(assistantReply)) return true;
+  return false;
+}
+
+export function memberAuditArgsFromResult(
+  contactId: string,
+  conversationId: string | null,
+  existingTotal: number,
+  result: ExtractResult,
+  mergedTotalWhenOk?: number,
+  factsAddedWhenOk?: number,
+): {
+  contactId: string;
+  conversationId: string | null;
+  surface: 'ghl-member-agent';
+  status: ExtractStatus;
+  factsAdded: number;
+  factsTotalAfter: number;
+  latencyMs: number;
+  errorSnippet?: string;
+} {
+  const surface = 'ghl-member-agent' as const;
+  switch (result.status) {
+    case 'ok':
+      return { contactId, conversationId, surface, status: 'ok',
+        factsAdded: factsAddedWhenOk ?? 0,
+        factsTotalAfter: mergedTotalWhenOk ?? existingTotal,
+        latencyMs: result.latencyMs };
+    case 'empty':
+      return { contactId, conversationId, surface, status: 'empty',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs };
+    case 'http_error':
+      return { contactId, conversationId, surface, status: 'http_error',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+        errorSnippet: `HTTP ${result.httpStatus}: ${result.error}` };
+    case 'parse_error':
+      return { contactId, conversationId, surface, status: 'parse_error',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+        errorSnippet: result.error };
+    case 'no_api_key':
+      return { contactId, conversationId, surface, status: 'no_api_key',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: 0 };
+    case 'threw':
+      return { contactId, conversationId, surface, status: 'threw',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+        errorSnippet: result.error };
+    case 'skipped_no_user_content':
+      return { contactId, conversationId, surface, status: 'skipped_no_user_content',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: 0 };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 Deno.serve(async (req: Request) => {
@@ -1035,6 +1123,48 @@ Surface: ghl-member-agent`);
       if (error) console.error('[memory] insert error:', error.message);
     } catch (err) {
       console.error('[memory] insert threw:', err);
+    }
+
+    // Step 11b: Post-conversation F.O.R.M. extraction + audit (non-fatal)
+    try {
+      if (shouldSkipExtractor(finalIntent, messageBody, replyText)) {
+        await recordExtraction(supabase, {
+          contactId, conversationId: conversationId ?? null,
+          surface: 'ghl-member-agent', status: 'skipped_no_user_content',
+          factsTotalAfter: 0, latencyMs: 0,
+        });
+      } else {
+        const currentRapport = await fetchRapport(supabase, contactId);
+        const result = await extractRapport(
+          { userMessage: messageBody, assistantReply: replyText, conversationId: conversationId ?? undefined },
+          currentRapport,
+          Deno.env.get('ANTHROPIC_API_KEY') ?? '',
+        );
+        const existingTotal =
+          currentRapport.family.length + currentRapport.occupation.length +
+          currentRapport.recreation.length + currentRapport.money.length;
+
+        let mergedTotalWhenOk: number | undefined;
+        let factsAddedWhenOk: number | undefined;
+        if (result.status === 'ok') {
+          const merged = mergeRapportFacts(currentRapport, result.facts);
+          await storeRapport(supabase, contactId, merged);
+          mergedTotalWhenOk = merged.family.length + merged.occupation.length +
+            merged.recreation.length + merged.money.length;
+          factsAddedWhenOk = result.facts.family.length + result.facts.occupation.length +
+            result.facts.recreation.length + result.facts.money.length;
+        }
+
+        await recordExtraction(
+          supabase,
+          memberAuditArgsFromResult(
+            contactId, conversationId ?? null,
+            existingTotal, result, mergedTotalWhenOk, factsAddedWhenOk,
+          ),
+        );
+      }
+    } catch (err) {
+      console.error('[rapport] member extract/audit threw (non-fatal):', err);
     }
 
     // Step 12: Escalation actions (tag + note + Google Chat)

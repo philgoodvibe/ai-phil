@@ -176,3 +176,51 @@ Deno.test('stripTrailingSignature: whitespace-tolerant (extra spaces/newlines)',
 Deno.test('stripTrailingSignature: empty string returns empty string', () => {
   assertEquals(stripTrailingSignature(''), '');
 });
+
+// ---------------------------------------------------------------------------
+// F.O.R.M. extractor helper tests (Task 6)
+// ---------------------------------------------------------------------------
+
+import { shouldSkipExtractor, memberAuditArgsFromResult, isCannedEscalationReply } from './index.ts';
+
+Deno.test('shouldSkipExtractor: short escalate message skips', () => {
+  assertEquals(shouldSkipExtractor('escalate', 'please help', 'some reply'), true);
+});
+
+Deno.test('shouldSkipExtractor: long escalate message does NOT skip', () => {
+  const long = 'x'.repeat(60);
+  assertEquals(shouldSkipExtractor('escalate', long, 'some reply'), false);
+});
+
+Deno.test('shouldSkipExtractor: canned escalation reply skips regardless of intent', () => {
+  assertEquals(
+    shouldSkipExtractor('support', 'some question',
+      'Hi Penny, thanks for the message. A human teammate will get back to you shortly.'),
+    true,
+  );
+});
+
+Deno.test('isCannedEscalationReply: case-insensitive match', () => {
+  assertEquals(isCannedEscalationReply('A HUMAN TEAMMATE WILL GET BACK TO YOU SHORTLY'), true);
+  assertEquals(isCannedEscalationReply('here is the answer'), false);
+});
+
+Deno.test('memberAuditArgsFromResult: skipped_no_user_content branch', () => {
+  const args = memberAuditArgsFromResult(
+    'c1', 'conv1', 2,
+    { status: 'skipped_no_user_content', latencyMs: 0 },
+  );
+  assertEquals(args.surface, 'ghl-member-agent');
+  assertEquals(args.status, 'skipped_no_user_content');
+  assertEquals(args.latencyMs, 0);
+});
+
+Deno.test('memberAuditArgsFromResult: ok branch uses merged totals', () => {
+  const args = memberAuditArgsFromResult(
+    'c1', null, 4,
+    { status: 'ok', facts: { family: [], occupation: [], recreation: [], money: [] }, latencyMs: 220 },
+    7, 3,
+  );
+  assertEquals(args.factsAdded, 3);
+  assertEquals(args.factsTotalAfter, 7);
+});
