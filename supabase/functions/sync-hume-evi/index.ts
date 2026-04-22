@@ -3,9 +3,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   buildHumeSharedBundle,
   buildHumeDiscoveryAddendum,
+  buildHumeVoiceBundle,
+  buildHumeDiscoveryVoiceAddendum,
+  type HumeBundle,
 } from '../_shared/salesVoice.ts';
 import { HumeClient, type HumeProxyFetch, type HumeProxyResponse } from './humeClient.ts';
-import { runSync, type RegistryRow } from './syncCore.ts';
+import { runSync, type RegistryRow, type BundleVariant } from './syncCore.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -13,6 +16,25 @@ const HUME_TOOL_SECRET = Deno.env.get('HUME_TOOL_SECRET')!;
 const HUME_ADMIN_URL = `${SUPABASE_URL}/functions/v1/hume-admin`;
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+
+// Variant dispatch — maps bundle_variant in ops.hume_config_registry to the
+// corresponding salesVoice builder. The Record<BundleVariant, ...> annotation
+// forces the TypeScript compiler to require an entry for every variant in the
+// BundleVariant union — adding a new variant to the union will fail to compile
+// until a matching dispatch entry lands here.
+const VARIANT_BUILDERS: Record<BundleVariant, {
+  bundle: () => Promise<HumeBundle>;
+  addendum: () => Promise<HumeBundle>;
+}> = {
+  full: {
+    bundle: buildHumeSharedBundle,
+    addendum: buildHumeDiscoveryAddendum,
+  },
+  voice: {
+    bundle: buildHumeVoiceBundle,
+    addendum: buildHumeDiscoveryVoiceAddendum,
+  },
+};
 
 const humeProxyFetch: HumeProxyFetch = async ({ method, path, payload }) => {
   const res = await fetch(HUME_ADMIN_URL, {
@@ -127,26 +149,22 @@ Deno.serve(async (req) => {
   const runId: number = runInsert.id as number;
 
   try {
+    // Per-variant sync_state keys: hume_evi_last_bundle_hash:{variant} + hume_evi_last_addendum_hash:{variant}
     const result = await runSync({
-      buildBundle: buildHumeSharedBundle,
-      buildAddendum: buildHumeDiscoveryAddendum,
+      buildBundle: (variant) => VARIANT_BUILDERS[variant].bundle(),
+      buildAddendum: (variant) => VARIANT_BUILDERS[variant].addendum(),
       loadRegistry: async () => {
         const { data, error } = await supabase
           .schema('ops')
           .from('hume_config_registry')
-          .select('slug, hume_config_id, hume_prompt_id, carries_addendum');
+          .select('slug, hume_config_id, hume_prompt_id, carries_addendum, bundle_variant');
         if (error) throw new Error(`registry load: ${error.message}`);
         return (data ?? []) as RegistryRow[];
       },
-      // sync_state is in the public schema (see migration 20260415000000_sync_state.sql)
-      loadLastBundleHash: async () => loadSyncState('hume_evi_last_bundle_hash'),
-      // Addendum hash is keyed per-slug because future configs could each carry
-      // their own addendum. Today only 'discovery' carries_addendum=true, so
-      // this is the only key. If more configs become carries_addendum=true,
-      // replace this with a per-slug key inside updateRegistryRow.
-      loadLastAddendumHash: async () => loadSyncState('hume_evi_last_addendum_hash:discovery'),
-      saveLastBundleHash: (h) => saveSyncState('hume_evi_last_bundle_hash', h),
-      saveLastAddendumHash: (h) => saveSyncState('hume_evi_last_addendum_hash:discovery', h),
+      loadLastBundleHash: async (variant) => loadSyncState(`hume_evi_last_bundle_hash:${variant}`),
+      loadLastAddendumHash: async (variant) => loadSyncState(`hume_evi_last_addendum_hash:${variant}`),
+      saveLastBundleHash: (variant, h) => saveSyncState(`hume_evi_last_bundle_hash:${variant}`, h),
+      saveLastAddendumHash: (variant, h) => saveSyncState(`hume_evi_last_addendum_hash:${variant}`, h),
       updateRegistryRow: async (slug, patch) => {
         const { error } = await supabase
           .schema('ops')
