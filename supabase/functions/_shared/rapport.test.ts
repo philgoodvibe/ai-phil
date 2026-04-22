@@ -1,8 +1,9 @@
-import { assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
   formatRapportBlock,
   mergeRapportFacts,
   type RapportFacts,
+  type ExtractStatus,
 } from './rapport.ts';
 
 Deno.test('formatRapportBlock returns empty block when no facts', () => {
@@ -62,4 +63,105 @@ Deno.test('mergeRapportFacts deduplicates exact duplicates', () => {
   };
   const merged = mergeRapportFacts(existing, incoming);
   assertEquals(merged.family.length, 1, 'exact dup dropped');
+});
+
+// ---------------------------------------------------------------------------
+// extractRapport return-shape tests (ExtractResult union)
+// ---------------------------------------------------------------------------
+import { extractRapport } from './rapport.ts';
+
+// Shared: stub global fetch per test, restore after.
+function withFetchStub(impl: (req: Request) => Promise<Response>, fn: () => Promise<void>) {
+  const original = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const req = input instanceof Request ? input : new Request(input as string, init);
+    return impl(req);
+  }) as typeof fetch;
+  return fn().finally(() => { globalThis.fetch = original; });
+}
+
+Deno.test('extractRapport: ok branch — Haiku returns 1 fact', async () => {
+  await withFetchStub(
+    (_req) => Promise.resolve(new Response(JSON.stringify({
+      content: [{ text: JSON.stringify({
+        family: [{ key: 'dog_name', value: 'Lucy', source_conv: 'c1', extracted_at: '2026-04-21T00:00:00Z' }],
+        occupation: [], recreation: [], money: [],
+      }) }],
+    }), { status: 200 })),
+    async () => {
+      const result = await extractRapport(
+        { userMessage: 'my dog Lucy', assistantReply: 'nice', conversationId: 'c1' },
+        { family: [], occupation: [], recreation: [], money: [] },
+        'test-key',
+      );
+      assertEquals(result.status, 'ok');
+      if (result.status === 'ok') {
+        assertEquals(result.facts.family.length, 1);
+        assert(result.latencyMs >= 0);
+      }
+    },
+  );
+});
+
+Deno.test('extractRapport: empty branch — Haiku returns all-empty pillars', async () => {
+  await withFetchStub(
+    (_req) => Promise.resolve(new Response(JSON.stringify({
+      content: [{ text: JSON.stringify({ family: [], occupation: [], recreation: [], money: [] }) }],
+    }), { status: 200 })),
+    async () => {
+      const result = await extractRapport(
+        { userMessage: 'k', assistantReply: 'got it', conversationId: 'c1' },
+        { family: [], occupation: [], recreation: [], money: [] },
+        'test-key',
+      );
+      assertEquals(result.status, 'empty');
+    },
+  );
+});
+
+Deno.test('extractRapport: http_error branch — 500 from Haiku', async () => {
+  await withFetchStub(
+    (_req) => Promise.resolve(new Response('upstream error', { status: 500 })),
+    async () => {
+      const result = await extractRapport(
+        { userMessage: 'x', assistantReply: 'y', conversationId: 'c1' },
+        { family: [], occupation: [], recreation: [], money: [] },
+        'test-key',
+      );
+      assertEquals(result.status, 'http_error');
+      if (result.status === 'http_error') {
+        assertEquals(result.httpStatus, 500);
+        assert(result.error.length > 0);
+      }
+    },
+  );
+});
+
+Deno.test('extractRapport: parse_error branch — Haiku returns malformed JSON', async () => {
+  await withFetchStub(
+    (_req) => Promise.resolve(new Response(JSON.stringify({
+      content: [{ text: 'not json {' }],
+    }), { status: 200 })),
+    async () => {
+      const result = await extractRapport(
+        { userMessage: 'x', assistantReply: 'y', conversationId: 'c1' },
+        { family: [], occupation: [], recreation: [], money: [] },
+        'test-key',
+      );
+      assertEquals(result.status, 'parse_error');
+      if (result.status === 'parse_error') {
+        assert(result.rawSnippet.length > 0);
+      }
+    },
+  );
+});
+
+Deno.test('extractRapport: no_api_key branch — empty key short-circuits', async () => {
+  const result = await extractRapport(
+    { userMessage: 'x', assistantReply: 'y', conversationId: 'c1' },
+    { family: [], occupation: [], recreation: [], money: [] },
+    '',
+  );
+  assertEquals(result.status, 'no_api_key');
+  assertEquals(result.latencyMs, 0);
 });

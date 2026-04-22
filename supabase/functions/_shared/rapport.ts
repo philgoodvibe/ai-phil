@@ -83,6 +83,28 @@ export const EMPTY_RAPPORT: RapportFacts = Object.freeze({
 export type SupabaseLike = any;
 
 // ---------------------------------------------------------------------------
+// ExtractResult — discriminated union returned by extractRapport
+// ---------------------------------------------------------------------------
+
+export type ExtractStatus =
+  | 'ok'
+  | 'empty'
+  | 'http_error'
+  | 'parse_error'
+  | 'no_api_key'
+  | 'threw'
+  | 'skipped_no_user_content';
+
+export type ExtractResult =
+  | { status: 'ok'; facts: RapportFacts; latencyMs: number }
+  | { status: 'empty'; facts: RapportFacts; latencyMs: number }
+  | { status: 'http_error'; error: string; httpStatus: number; latencyMs: number }
+  | { status: 'parse_error'; error: string; rawSnippet: string; latencyMs: number }
+  | { status: 'no_api_key'; latencyMs: 0 }
+  | { status: 'threw'; error: string; latencyMs: number }
+  | { status: 'skipped_no_user_content'; latencyMs: 0 };
+
+// ---------------------------------------------------------------------------
 // formatRapportBlock — pure. System-prompt block renderer.
 // ---------------------------------------------------------------------------
 
@@ -292,10 +314,10 @@ export async function extractRapport(
   },
   existingFacts: RapportFacts,
   anthropicApiKey: string,
-): Promise<RapportFacts> {
+): Promise<ExtractResult> {
   if (!anthropicApiKey) {
     console.error('[rapport] extractRapport called without anthropicApiKey');
-    return { family: [], occupation: [], recreation: [], money: [] };
+    return { status: 'no_api_key', latencyMs: 0 };
   }
 
   const convId = conversationTurn.conversationId ?? 'unknown';
@@ -320,6 +342,7 @@ ${existingSummary}
 
 Return ONLY the JSON object. No prose. No code fences.`;
 
+  const startedAt = Date.now();
   try {
     const res = await fetch(ANTHROPIC_ENDPOINT, {
       method: 'POST',
@@ -336,16 +359,24 @@ Return ONLY the JSON object. No prose. No code fences.`;
       }),
     });
 
+    const latencyMs = Date.now() - startedAt;
+
     if (!res.ok) {
-      console.error(`[rapport] Haiku extract ${res.status}:`, await res.text());
-      return { family: [], occupation: [], recreation: [], money: [] };
+      const body = (await res.text()).slice(0, 200);
+      console.error(`[rapport] Haiku extract ${res.status}:`, body);
+      return { status: 'http_error', error: body, httpStatus: res.status, latencyMs };
     }
 
     const data = (await res.json()) as { content?: Array<{ text?: string }> };
     const text = data.content?.[0]?.text?.trim();
     if (!text) {
       console.error('[rapport] Haiku extract returned empty content');
-      return { family: [], occupation: [], recreation: [], money: [] };
+      return {
+        status: 'parse_error',
+        error: 'empty content block',
+        rawSnippet: JSON.stringify(data).slice(0, 200),
+        latencyMs,
+      };
     }
 
     const cleaned = stripCodeFences(text);
@@ -353,14 +384,31 @@ Return ONLY the JSON object. No prose. No code fences.`;
     try {
       parsed = JSON.parse(cleaned);
     } catch (err) {
-      console.error('[rapport] Haiku extract produced malformed JSON:', err, cleaned.slice(0, 200));
-      return { family: [], occupation: [], recreation: [], money: [] };
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[rapport] Haiku extract produced malformed JSON:', msg, cleaned.slice(0, 200));
+      return {
+        status: 'parse_error',
+        error: msg,
+        rawSnippet: cleaned.slice(0, 200),
+        latencyMs,
+      };
     }
 
-    return normalizeRapportShape(parsed);
+    const facts = normalizeRapportShape(parsed);
+    const hasAny =
+      facts.family.length > 0 ||
+      facts.occupation.length > 0 ||
+      facts.recreation.length > 0 ||
+      facts.money.length > 0;
+
+    return hasAny
+      ? { status: 'ok', facts, latencyMs }
+      : { status: 'empty', facts, latencyMs };
   } catch (err) {
-    console.error('[rapport] Haiku extract threw:', err);
-    return { family: [], occupation: [], recreation: [], money: [] };
+    const latencyMs = Date.now() - startedAt;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[rapport] Haiku extract threw:', msg);
+    return { status: 'threw', error: msg, latencyMs };
   }
 }
 
