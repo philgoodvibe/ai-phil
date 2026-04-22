@@ -484,3 +484,53 @@ export async function storeRapport(
     console.error('[rapport] store threw:', err);
   }
 }
+
+// ---------------------------------------------------------------------------
+// recordExtraction — one audit row per extractor invocation
+// ---------------------------------------------------------------------------
+
+export interface ExtractionAuditRow {
+  contactId: string;
+  conversationId?: string | null;
+  surface: 'ghl-sales-agent' | 'ghl-sales-followup' | 'ghl-member-agent';
+  status: ExtractStatus;
+  factsAdded?: number;
+  factsTotalAfter?: number;
+  latencyMs?: number;
+  errorSnippet?: string;
+}
+
+const SNIPPET_CAP = 200;
+
+/**
+ * Insert one row into ops.rapport_extractions. Strictly additive: own
+ * try/catch, own DB-error swallow. A bug in this helper must never surface
+ * to the user-facing reply. errorSnippet is truncated to 200 chars.
+ */
+export async function recordExtraction(
+  supabase: SupabaseLike,
+  row: ExtractionAuditRow,
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .schema('ops')
+      .from('rapport_extractions')
+      .insert({
+        contact_id: row.contactId,
+        conversation_id: row.conversationId ?? null,
+        surface: row.surface,
+        haiku_status: row.status,
+        facts_added: row.factsAdded ?? 0,
+        facts_total_after: row.factsTotalAfter ?? 0,
+        latency_ms: row.latencyMs ?? null,
+        error_snippet: row.errorSnippet
+          ? row.errorSnippet.slice(0, SNIPPET_CAP)
+          : null,
+      });
+    if (error) {
+      console.error('[rapport] audit insert error:', (error as { message?: string }).message ?? error);
+    }
+  } catch (err) {
+    console.error('[rapport] audit insert threw:', err);
+  }
+}

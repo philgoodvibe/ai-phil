@@ -183,3 +183,72 @@ Deno.test('extractRapport: threw branch — synchronous fetch error', async () =
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// recordExtraction tests
+// ---------------------------------------------------------------------------
+import { recordExtraction } from './rapport.ts';
+
+Deno.test('recordExtraction: builds correct row shape', async () => {
+  const inserts: unknown[] = [];
+  const stub = {
+    schema: (_: string) => ({
+      from: (_t: string) => ({
+        insert: (row: unknown) => {
+          inserts.push(row);
+          return Promise.resolve({ error: null });
+        },
+      }),
+    }),
+  };
+  await recordExtraction(stub, {
+    contactId: 'c1',
+    conversationId: 'conv1',
+    surface: 'ghl-sales-agent',
+    status: 'ok',
+    factsAdded: 2,
+    factsTotalAfter: 5,
+    latencyMs: 123,
+  });
+  assertEquals(inserts.length, 1);
+  const row = inserts[0] as Record<string, unknown>;
+  assertEquals(row.contact_id, 'c1');
+  assertEquals(row.conversation_id, 'conv1');
+  assertEquals(row.surface, 'ghl-sales-agent');
+  assertEquals(row.haiku_status, 'ok');
+  assertEquals(row.facts_added, 2);
+  assertEquals(row.facts_total_after, 5);
+  assertEquals(row.latency_ms, 123);
+});
+
+Deno.test('recordExtraction: caps errorSnippet at 200 chars', async () => {
+  const inserts: unknown[] = [];
+  const stub = {
+    schema: (_: string) => ({
+      from: (_t: string) => ({
+        insert: (row: unknown) => { inserts.push(row); return Promise.resolve({ error: null }); },
+      }),
+    }),
+  };
+  const longErr = 'x'.repeat(500);
+  await recordExtraction(stub, {
+    contactId: 'c1', surface: 'ghl-sales-agent', status: 'threw',
+    errorSnippet: longErr,
+  });
+  const row = inserts[0] as Record<string, unknown>;
+  assertEquals((row.error_snippet as string).length, 200);
+});
+
+Deno.test('recordExtraction: swallows DB errors (non-fatal)', async () => {
+  const stub = {
+    schema: (_: string) => ({
+      from: (_t: string) => ({
+        insert: (_: unknown) => Promise.resolve({ error: { message: 'fake db err' } }),
+      }),
+    }),
+  };
+  // Must not throw.
+  await recordExtraction(stub, {
+    contactId: 'c1', surface: 'ghl-sales-agent', status: 'empty',
+  });
+});
