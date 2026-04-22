@@ -95,6 +95,16 @@ export type ExtractStatus =
   | 'threw'
   | 'skipped_no_user_content';
 
+/**
+ * `skipped_no_user_content` is included for exhaustive-switch coverage in
+ * call sites that narrow on `ExtractResult.status`. `extractRapport` itself
+ * never emits it — the skip decision lives in the caller (see
+ * `shouldSkipExtractor` in ghl-member-agent), which records the audit row
+ * directly without invoking Haiku. Present here so the helper switches in
+ * ghl-sales-agent / ghl-sales-followup / ghl-member-agent can be exhaustive.
+ * `parse_error` covers both "empty content block" and malformed-JSON paths;
+ * the `error` field distinguishes them at runtime.
+ */
 export type ExtractResult =
   | { status: 'ok'; facts: RapportFacts; latencyMs: number }
   | { status: 'empty'; facts: RapportFacts; latencyMs: number }

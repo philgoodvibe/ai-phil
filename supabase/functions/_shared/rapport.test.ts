@@ -165,3 +165,21 @@ Deno.test('extractRapport: no_api_key branch — empty key short-circuits', asyn
   assertEquals(result.status, 'no_api_key');
   assertEquals(result.latencyMs, 0);
 });
+
+Deno.test('extractRapport: threw branch — synchronous fetch error', async () => {
+  await withFetchStub(
+    (_req) => { throw new Error('network down'); },
+    async () => {
+      const result = await extractRapport(
+        { userMessage: 'x', assistantReply: 'y', conversationId: 'c1' },
+        { family: [], occupation: [], recreation: [], money: [] },
+        'test-key',
+      );
+      assertEquals(result.status, 'threw');
+      if (result.status === 'threw') {
+        assert(result.error.includes('network down'));
+        assert(result.latencyMs >= 0);
+      }
+    },
+  );
+});
