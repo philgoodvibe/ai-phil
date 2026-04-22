@@ -6,6 +6,24 @@ import {
   type ExtractStatus,
 } from './rapport.ts';
 
+Deno.test('migration CHECK covers every ExtractStatus value', async () => {
+  const sqlPath = new URL(
+    '../../migrations/20260423000000_rapport_extractions_audit.sql',
+    import.meta.url,
+  );
+  const sql = await Deno.readTextFile(sqlPath);
+  const expected: ExtractStatus[] = [
+    'ok', 'empty', 'http_error', 'parse_error',
+    'no_api_key', 'threw', 'skipped_no_user_content',
+  ];
+  for (const v of expected) {
+    assert(
+      sql.includes(`'${v}'`),
+      `migration CHECK missing '${v}' — update the SQL or drop the TS status`,
+    );
+  }
+});
+
 Deno.test('formatRapportBlock returns empty block when no facts', () => {
   const facts: RapportFacts = { family: [], occupation: [], recreation: [], money: [] };
   const block = formatRapportBlock(facts);
