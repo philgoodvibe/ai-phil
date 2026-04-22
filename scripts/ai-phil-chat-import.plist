@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd plist TEMPLATE for the ai-phil Claude Code chat-import cron.
+
+  Before installing: replace the two /ABSOLUTE/PATH/TO/... placeholders.
+  Install / uninstall steps are in scripts/README-chat-import.md.
+
+  Committing this file does NOT schedule anything. It is dormant until
+  Phillip copies it to ~/Library/LaunchAgents and runs launchctl load.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.philgoodvibe.ai-phil.chat-import</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/deno</string>
+    <string>run</string>
+    <string>--allow-read</string>
+    <string>--allow-write</string>
+    <string>--allow-env</string>
+    <string>/ABSOLUTE/PATH/TO/Ai Phil/scripts/import-claude-chats.ts</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>17</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/ai-phil-chat-import.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/ai-phil-chat-import.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>AIAI_VAULT_ROOT</key>
+    <string>/ABSOLUTE/PATH/TO/AIAI-Vault</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>AbandonProcessGroup</key>
+  <true/>
+</dict>
+</plist>
