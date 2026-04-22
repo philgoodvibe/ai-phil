@@ -769,3 +769,31 @@ export async function buildHumeDiscoveryAddendum(): Promise<HumeBundle> {
   const hash = await sha256Hex(text);
   return { text, hash, blockNames: ['BRANDED_ACRONYM_EXPANSION_BLOCK'] };
 }
+
+const VOICE_BUNDLE_BLOCKS: Array<[string, string]> = [
+  ['IDENTITY_VOICE_BLOCK', IDENTITY_VOICE_BLOCK],
+  ['VOICE_HORMOZI_VOICE_BLOCK', VOICE_HORMOZI_VOICE_BLOCK],
+  ['SECURITY_VOICE_BLOCK', SECURITY_VOICE_BLOCK],
+  ['FORM_VOICE_BLOCK', FORM_VOICE_BLOCK],
+  ['NEVER_LIE_VOICE_BLOCK', NEVER_LIE_VOICE_BLOCK],
+  ['AGENCY_BOUNDARIES_VOICE_BLOCK', AGENCY_BOUNDARIES_VOICE_BLOCK],
+];
+
+/** Voice-optimized shared bundle for Hume EVI configs with
+ *  bundle_variant='voice' (currently only Discovery). Compressed to fit the
+ *  speech model's 7k-char window once combined with the Discovery wrapper.
+ *  Not consumed by GHL agents — they use the full buildSystemPrompt path. */
+export async function buildHumeVoiceBundle(): Promise<HumeBundle> {
+  const text = VOICE_BUNDLE_BLOCKS.map(([, body]) => body).join('\n\n---\n\n');
+  const hash = await sha256Hex(text);
+  const blockNames = VOICE_BUNDLE_BLOCKS.map(([name]) => name);
+  return { text, hash, blockNames };
+}
+
+/** Discovery-only addendum for voice variant. Compressed version of the
+ *  branded-acronym rule — same six canonical expansions, shorter framing. */
+export async function buildHumeDiscoveryVoiceAddendum(): Promise<HumeBundle> {
+  const text = BRANDED_ACRONYM_VOICE_BLOCK;
+  const hash = await sha256Hex(text);
+  return { text, hash, blockNames: ['BRANDED_ACRONYM_VOICE_BLOCK'] };
+}

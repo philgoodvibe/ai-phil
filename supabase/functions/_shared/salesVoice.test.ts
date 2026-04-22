@@ -6,7 +6,9 @@ import {
   BRANDED_ACRONYM_EXPANSION_BLOCK,
   BRANDED_ACRONYM_VOICE_BLOCK,
   buildHumeDiscoveryAddendum,
+  buildHumeDiscoveryVoiceAddendum,
   buildHumeSharedBundle,
+  buildHumeVoiceBundle,
   buildSystemPrompt,
   containsBannedWord,
   detectInjectionAttempt,
@@ -496,4 +498,74 @@ Deno.test('BRANDED_ACRONYM_VOICE_BLOCK carries rule + 6 canonical expansions', (
   assertStringIncludes(BRANDED_ACRONYM_VOICE_BLOCK, 'AVA');
   assertStringIncludes(BRANDED_ACRONYM_VOICE_BLOCK, 'ATLAS');
   assert(BRANDED_ACRONYM_VOICE_BLOCK.length < 750, `too long: ${BRANDED_ACRONYM_VOICE_BLOCK.length}`);
+});
+
+// ---------------------------------------------------------------------------
+// Task 2 — buildHumeVoiceBundle + buildHumeDiscoveryVoiceAddendum
+// ---------------------------------------------------------------------------
+
+Deno.test('buildHumeVoiceBundle is deterministic', async () => {
+  const a = await buildHumeVoiceBundle();
+  const b = await buildHumeVoiceBundle();
+  assertEquals(a.hash, b.hash);
+  assertEquals(a.text, b.text);
+});
+
+Deno.test('buildHumeVoiceBundle fits inside the ~4500-char target', async () => {
+  const bundle = await buildHumeVoiceBundle();
+  assert(bundle.text.length < 4500, `voice bundle too large: ${bundle.text.length} chars`);
+  assert(bundle.text.length > 2500, `voice bundle suspiciously small: ${bundle.text.length} chars`);
+});
+
+Deno.test('buildHumeVoiceBundle differs from buildHumeSharedBundle', async () => {
+  const voice = await buildHumeVoiceBundle();
+  const full = await buildHumeSharedBundle();
+  assert(voice.hash !== full.hash, 'voice and full bundles should have different hashes');
+  assert(voice.text.length < full.text.length, 'voice bundle should be shorter than full bundle');
+});
+
+Deno.test('buildHumeVoiceBundle includes all 6 voice-variant blocks in order', async () => {
+  const bundle = await buildHumeVoiceBundle();
+  const idxIdentity = bundle.text.indexOf('# Identity');
+  const idxVoice = bundle.text.indexOf('# Voice');
+  const idxSecurity = bundle.text.indexOf('# Security');
+  const idxForm = bundle.text.indexOf('# F.O.R.M.');
+  const idxNeverLie = bundle.text.indexOf('# Never-lie');
+  const idxAgency = bundle.text.indexOf('# Agency boundaries');
+  for (const idx of [idxIdentity, idxVoice, idxSecurity, idxForm, idxNeverLie, idxAgency]) {
+    assert(idx >= 0, 'expected section header not found');
+  }
+  assert(idxIdentity < idxVoice);
+  assert(idxVoice < idxSecurity);
+  assert(idxSecurity < idxForm);
+  assert(idxForm < idxNeverLie);
+  assert(idxNeverLie < idxAgency);
+  assertEquals(bundle.blockNames.length, 6);
+});
+
+Deno.test('buildHumeDiscoveryVoiceAddendum is deterministic', async () => {
+  const a = await buildHumeDiscoveryVoiceAddendum();
+  const b = await buildHumeDiscoveryVoiceAddendum();
+  assertEquals(a.hash, b.hash);
+  assertEquals(a.text, b.text);
+});
+
+Deno.test('buildHumeDiscoveryVoiceAddendum includes acronym rule + 6 expansions', async () => {
+  const addendum = await buildHumeDiscoveryVoiceAddendum();
+  assertStringIncludes(addendum.text, 'expand on first mention');
+  assertStringIncludes(addendum.text, 'MAX');
+  assertStringIncludes(addendum.text, 'MAYA');
+  assertStringIncludes(addendum.text, 'ATOM');
+  assertStringIncludes(addendum.text, 'SARA');
+  assertStringIncludes(addendum.text, 'AVA');
+  assertStringIncludes(addendum.text, 'ATLAS');
+  assert(addendum.text.length < 800, `addendum too large: ${addendum.text.length}`);
+});
+
+Deno.test('voice bundle + addendum + wrapper budget < 7000 chars', async () => {
+  const bundle = await buildHumeVoiceBundle();
+  const addendum = await buildHumeDiscoveryVoiceAddendum();
+  const SYNCED_BUDGET = 7000 - 2000; // wrapper target + small buffer (actual wrapper ~2000 chars)
+  const total = bundle.text.length + addendum.text.length;
+  assert(total < SYNCED_BUDGET, `synced content too large: ${total} > ${SYNCED_BUDGET}`);
 });
