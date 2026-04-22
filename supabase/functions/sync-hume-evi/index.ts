@@ -9,6 +9,11 @@ import {
 } from '../_shared/salesVoice.ts';
 import { HumeClient, type HumeProxyFetch, type HumeProxyResponse } from './humeClient.ts';
 import { runSync, type RegistryRow, type BundleVariant } from './syncCore.ts';
+import {
+  SHARED_BEGIN, SHARED_END,
+  ADDENDUM_BEGIN, ADDENDUM_END,
+  makeMarkerBlock,
+} from './markers.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -77,13 +82,126 @@ Deno.serve(async (req) => {
     });
   }
 
-  let body: { trigger?: 'cron' | 'admin' | 'test' | 'bootstrap-inspect'; config_ids?: string[] };
+  let body: { trigger?: 'cron' | 'admin' | 'test' | 'bootstrap-inspect' | 'set-wrapper'; config_ids?: string[]; slug?: string; wrapper_text?: string };
   try {
     body = await req.json();
   } catch {
     body = {};
   }
   const trigger = body.trigger ?? 'admin';
+
+  // Set-wrapper mode — rewrite the authored wrapper section of a single Hume EVI
+  // config's prompt. Accepts {slug, wrapper_text}, builds the marker regions from
+  // VARIANT_BUILDERS, composes the full prompt, and POSTs as a new prompt +
+  // config version. Auth stays on the existing Bearer check — no new secret needed.
+  if (trigger === 'set-wrapper') {
+    const slug = (body as { slug?: string }).slug ?? '';
+    const wrapperText = (body as { wrapper_text?: string }).wrapper_text ?? '';
+
+    if (!slug) {
+      return new Response(JSON.stringify({ error: 'slug is required for set-wrapper' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (!wrapperText) {
+      return new Response(JSON.stringify({ error: 'wrapper_text is required for set-wrapper' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Load the registry row for this slug.
+    const { data: rows, error: registryErr } = await supabase
+      .schema('ops')
+      .from('hume_config_registry')
+      .select('slug, hume_config_id, hume_prompt_id, carries_addendum, bundle_variant')
+      .eq('slug', slug);
+
+    if (registryErr) {
+      return new Response(JSON.stringify({ error: `registry lookup failed: ${registryErr.message}` }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (!rows || rows.length === 0) {
+      return new Response(JSON.stringify({ error: `slug '${slug}' not found in ops.hume_config_registry` }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const row = rows[0] as RegistryRow;
+    const variant = row.bundle_variant as BundleVariant;
+
+    // Build bundle + addendum for this variant.
+    const bundle = await VARIANT_BUILDERS[variant].bundle();
+    const addendum = await VARIANT_BUILDERS[variant].addendum();
+
+    // Compose: wrapper_text + SHARED marker block + optional ADDENDUM marker block.
+    const sharedBlock = makeMarkerBlock(SHARED_BEGIN, SHARED_END, bundle.text, bundle.hash.slice(0, 12));
+    let fullText = `${wrapperText}\n\n${sharedBlock}`;
+    if (row.carries_addendum) {
+      const addendumBlock = makeMarkerBlock(ADDENDUM_BEGIN, ADDENDUM_END, addendum.text, addendum.hash.slice(0, 12));
+      fullText = `${fullText}\n\n${addendumBlock}`;
+    }
+
+    const totalChars = fullText.length;
+    const description = `set-wrapper via admin: slug=${slug}, variant=${variant}, total_chars=${totalChars}`;
+
+    // POST new prompt version.
+    const promptVersion = await humeClient.postPromptVersion(row.hume_prompt_id, fullText, description);
+
+    // POST new config version pinned to the new prompt version.
+    const currentConfig = await humeClient.getConfigLatest(row.hume_config_id);
+    const configVersion = await humeClient.postConfigVersion(
+      row.hume_config_id,
+      currentConfig.raw,
+      { id: row.hume_prompt_id, version: promptVersion },
+      description,
+    );
+
+    // Write audit row.
+    const { data: swRun, error: swRunErr } = await supabase
+      .schema('ops')
+      .from('hume_sync_runs')
+      .insert({
+        trigger: 'set-wrapper',
+        bundle_hash: bundle.hash,
+        addendum_hash: addendum.hash,
+        bundle_changed: true,
+        status: 'ok',
+        configs_checked: 1,
+        configs_updated: 1,
+        configs_failed: 0,
+        hume_versions: [{ slug, prompt_version: promptVersion, config_version: configVersion }],
+        completed_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+
+    if (swRunErr) {
+      console.error('[sync-hume-evi] set-wrapper audit row insert error:', swRunErr.message);
+    }
+
+    // Update registry row with new versions.
+    await supabase
+      .schema('ops')
+      .from('hume_config_registry')
+      .update({ last_prompt_ver: promptVersion, last_config_ver: configVersion, updated_at: new Date().toISOString() })
+      .eq('slug', slug);
+
+    return new Response(
+      JSON.stringify({
+        run_id: swRun?.id ?? null,
+        slug,
+        prompt_version: promptVersion,
+        config_version: configVersion,
+        total_chars: totalChars,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
 
   // Bootstrap-inspect mode — one-time read-only fetch of config + prompt metadata
   // for each config_id in the payload. Used by the seed migration to populate
