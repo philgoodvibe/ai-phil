@@ -8,7 +8,7 @@ import {
   SECURITY_REFUSAL_PRIMARY,
   type VoiceContext,
 } from '../_shared/salesVoice.ts';
-import { fetchRapport, extractRapport, storeRapport, mergeRapportFacts } from '../_shared/rapport.ts';
+import { fetchRapport, extractRapport, storeRapport, mergeRapportFacts, recordExtraction } from '../_shared/rapport.ts';
 import { fetchCachedGoogleDoc } from '../_shared/kbCache.ts';
 
 // ---------------------------------------------------------------------------
@@ -510,6 +510,73 @@ async function postGoogleChatAlert(text: string): Promise<void> {
   }
 }
 
+/**
+ * Pure helper that maps an ExtractResult to the audit row args the handler
+ * passes to recordExtraction. Extracted for unit testing the switch logic
+ * without spinning up the handler.
+ */
+export function auditArgsFromResult(
+  contactId: string,
+  conversationId: string | null,
+  surface: 'ghl-sales-agent',
+  existingTotal: number,
+  result: import('../_shared/rapport.ts').ExtractResult,
+  mergedTotalWhenOk?: number,
+  factsAddedWhenOk?: number,
+): {
+  contactId: string;
+  conversationId: string | null;
+  surface: 'ghl-sales-agent';
+  status: import('../_shared/rapport.ts').ExtractStatus;
+  factsAdded: number;
+  factsTotalAfter: number;
+  latencyMs: number;
+  errorSnippet?: string;
+} {
+  switch (result.status) {
+    case 'ok':
+      return {
+        contactId, conversationId, surface, status: 'ok',
+        factsAdded: factsAddedWhenOk ?? 0,
+        factsTotalAfter: mergedTotalWhenOk ?? existingTotal,
+        latencyMs: result.latencyMs,
+      };
+    case 'empty':
+      return {
+        contactId, conversationId, surface, status: 'empty',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+      };
+    case 'http_error':
+      return {
+        contactId, conversationId, surface, status: 'http_error',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+        errorSnippet: `HTTP ${result.httpStatus}: ${result.error}`,
+      };
+    case 'parse_error':
+      return {
+        contactId, conversationId, surface, status: 'parse_error',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+        errorSnippet: result.error,
+      };
+    case 'no_api_key':
+      return {
+        contactId, conversationId, surface, status: 'no_api_key',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: 0,
+      };
+    case 'threw':
+      return {
+        contactId, conversationId, surface, status: 'threw',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: result.latencyMs,
+        errorSnippet: result.error,
+      };
+    case 'skipped_no_user_content':
+      return {
+        contactId, conversationId, surface, status: 'skipped_no_user_content',
+        factsAdded: 0, factsTotalAfter: existingTotal, latencyMs: 0,
+      };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
@@ -878,20 +945,38 @@ Auto-reply sent: ${sendOk ? 'yes' : 'FAILED'}`);
       console.error('[memory] insert threw:', err);
     }
 
-    // Step 9b: Post-conversation F.O.R.M. extraction (non-fatal)
+    // Step 9b: Post-conversation F.O.R.M. extraction (non-fatal) + audit
     try {
       const currentRapport = await fetchRapport(supabase, contactId);
-      const newFacts = await extractRapport(
+      const result = await extractRapport(
         { userMessage: messageBody, assistantReply: replyText, conversationId: conversationId ?? undefined },
         currentRapport,
         Deno.env.get('ANTHROPIC_API_KEY') ?? '',
       );
-      if (Object.values(newFacts).some((arr) => arr.length > 0)) {
-        const merged = mergeRapportFacts(currentRapport, newFacts);
+      const existingTotal =
+        currentRapport.family.length + currentRapport.occupation.length +
+        currentRapport.recreation.length + currentRapport.money.length;
+
+      let mergedTotalWhenOk: number | undefined;
+      let factsAddedWhenOk: number | undefined;
+      if (result.status === 'ok') {
+        const merged = mergeRapportFacts(currentRapport, result.facts);
         await storeRapport(supabase, contactId, merged);
+        mergedTotalWhenOk = merged.family.length + merged.occupation.length +
+          merged.recreation.length + merged.money.length;
+        factsAddedWhenOk = result.facts.family.length + result.facts.occupation.length +
+          result.facts.recreation.length + result.facts.money.length;
       }
+
+      await recordExtraction(
+        supabase,
+        auditArgsFromResult(
+          contactId, conversationId ?? null, 'ghl-sales-agent',
+          existingTotal, result, mergedTotalWhenOk, factsAddedWhenOk,
+        ),
+      );
     } catch (err) {
-      console.error('[rapport] extract threw (non-fatal):', err);
+      console.error('[rapport] extract/audit threw (non-fatal):', err);
     }
 
     // Step 10: Checkout URL in reply → upsert follow-up queue (ignore duplicates)
